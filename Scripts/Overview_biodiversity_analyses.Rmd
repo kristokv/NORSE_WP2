@@ -1,0 +1,446 @@
+---
+title: "Analyses for: Overview of biodiversity in Northern European seagrass meadows "
+date: '`r format(Sys.Date(), "%d %B %Y")`'
+
+output: 
+  html_document:
+    toc: true # Gives Table of Contents
+    toc_depth: 2
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+# Overview of data
+
+```{r settings}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE) 
+
+library(ggplot2)
+library(reshape2)
+library(plyr)
+library(corrplot)
+library(tidyverse)
+library(knitr)
+library(ggrepel)
+library(scatterpie)
+library(gridExtra)
+library(vegan)
+# Function to print tables
+print_kable = function(x) {
+  print(kable_print_output <<- x)
+  cat('\n')
+}
+
+load("../../05 Data/infauna_epifauna_merge_group_analysis_24022025.RData") # Data grouped at class/order/family level
+load("../../05 Data/infauna_epifauna_analysis_24022025.RData") # Data at genus/species level 
+
+# Site with missing long/lat (Nøtterøy) assumed to be 10.445 E/59.167 N
+all_dat_g_env$Long[is.na(all_dat_g_env$Long)] <- 10.445
+all_dat_g_env$Lat[is.na(all_dat_g_env$Lat)] <- 59.167
+all_dat_env$Long[is.na(all_dat_env$Long)] <- 10.445
+all_dat_env$Lat[is.na(all_dat_env$Lat)] <- 59.167
+
+```
+
+Tables summarizing the data.
+
+```{r table_data}
+# Number of sites per country and range of years 
+country_table <- all_dat_g_env %>%
+  filter(Abundance > 0) %>%
+  dplyr::select(Country, Site, Year) %>%
+  distinct() %>%
+  group_by(Country) %>%
+  summarise(`Range years` =  paste0(min(Year),"-",max(Year)), `Num. sites` = length(unique(Site)))
+
+kable(country_table, caption = "Number of sites with available eelgrass fauna data and range of years of data.")
+
+# Summarizing the number of observations (years and months) per site
+site_table <- all_dat_g_env %>%
+  filter(Abundance > 0) %>%
+  dplyr::select(Country, Site, Year, Month) %>%
+  distinct() %>%
+  group_by(Country, Site) %>%
+  summarise(`Range years` =  paste0(min(Year),"-",max(Year)), `Num. campaigns` = n())
+  
+kable(site_table, caption = "All sites with available eelgrass fauna data, range of years of data and number of sampling campaigns for epifanua or infauna.")
+rm(country_table, site_table)
+```
+
+Maps of the distribution of sites, including all sites or only sites with min. two years of data.
+
+```{r map_all, fig.cap="Sites with eelgrass fauna data across the Northern European countries. The color scale of the label indicates the number of years of data available for each site. ", fig.height=10, fig.width=10}
+
+sites <- all_dat_env %>%
+  dplyr::select(Long, Lat, Site, Year) %>% 
+  unique() %>%
+  group_by(Long, Lat, Site) %>%
+  summarise(Num.years = n()) 
+
+g <- ggplot(sites, aes(Long, Lat)) + geom_point() + 
+  borders(xlim = range(sites$Long, na.rm=T),ylim = range(sites$Lat, na.rm=T)) + 
+  theme_classic() + 
+  geom_label_repel(data = sites,aes(Long, Lat, label = Site, color=Num.years),
+                  box.padding   = 0.15, 
+                  size=3,
+                  max.overlaps = length(sites$Site),
+                  segment.color = 'black') +
+  scale_colour_gradient2(low = "grey",high = "black")
+g
+
+ggsave("../Graphs/map_all_sites.jpg", width=190, height=150,units="mm")
+```
+
+```{r map_selected, fig.cap="Sites minimum two years of eelgrass fauna data across the Northern European countries. The color scale of the label indicates the number of years of data available for each site.", fig.height=10, fig.width=10}
+
+sites <- all_dat_env %>%
+  dplyr::select(Long, Lat, Site, Year) %>% 
+  unique() %>%
+  group_by(Long, Lat, Site) %>%
+  summarise(Num.years = n()) %>%
+  filter(Num.years > 1)
+
+g <- ggplot(sites, aes(Long, Lat)) + geom_point() + 
+  borders(xlim = range(sites$Long, na.rm=T),ylim = range(sites$Lat, na.rm=T)) + 
+  theme_classic() + 
+  geom_label_repel(data = sites,aes(Long, Lat, label = Site, color=Num.years),
+                  box.padding   = 0.15, 
+                  size=3,
+                  max.overlaps = length(sites$Site),
+                  segment.color = 'black') +
+  scale_colour_gradient2(low = "grey",high = "black")
+
+g
+ggsave("../Graphs/map_twoyears_sites.jpg", width=190, height=150,units="mm")
+rm(sites)
+
+```
+
+Figures of the distributions of years and months of data
+
+```{r fig_months_uears, fig.cap="Distribution of observations from all sites over time. Size of the points indicate the number of months sampled that year, with color indicating which month.", fig.height=20, fig.width=10}
+
+pie_data <- all_dat_env %>%
+  filter(!is.na(Month)) %>%
+  mutate(Country_Site = paste(Country, Site, sep = ", "),
+         Month = month.abb[as.numeric(Month)]) %>%
+  dplyr::select(Country_Site, Year, Month) %>%
+  distinct() %>%
+  mutate(Value = 1)   %>%
+  complete(Country_Site, Year, Month = month.abb, fill = list(Value = 0))  %>% 
+  pivot_wider(names_from = Month, values_from = Value, values_fill = list(Value = 0)) %>% 
+  dplyr::select(Country_Site, Year, month.abb) %>% 
+  mutate(site_num = as.numeric(as.factor(Country_Site))) %>%
+  mutate(count = rowSums(select(., contains(month.abb)))) 
+
+countrysite2num <- pie_data %>%
+  dplyr::select(Country_Site, site_num) %>%
+  distinct() 
+
+ggplot() + geom_scatterpie(data=pie_data, aes(x=Year, y=site_num, r = 0.5*log(count+1)),
+                           cols=month.abb[1:12], color=NA) + 
+  scale_y_continuous(breaks=countrysite2num$site_num, labels=countrysite2num$Country_Site) + 
+  labs(x="Year", y="") + 
+  theme_classic() +
+  theme(legend.title = element_blank(), legend.position = "bottom", legend.text=element_text(size=8), legend.key.size = unit(0.3, 'cm'))
+
+ggsave("../Graphs/piechart_year_month.jpg", width=190, height=100,units="mm")
+rm(pie_data, countrysite2num)
+```
+
+
+# Analysing differences in biodiversity between countries
+
+Simple overviews of total abundance, richness, diversity of oveall groups of epifauna.
+Site nested within country in the ANOVA. Germany stands out with higher abundance and diversity. 
+
+```{r anovas_epifauna_groups, eval=TRUE, fig.cap="Distribution of diversity indices of coarse groups by country.", fig.height=10, fig.width=10}
+
+dat_overview <- all_dat_g_env %>%
+  filter(Set == "Epifauna") %>%
+  mutate(across(c(Country, Site, Month), as.factor)) %>%
+  group_by(Country, Site, Year, Month, Group)  %>%
+  summarise(GroupAbundance = sum(Abundance)) %>% # Summing the total abundance per group 
+  ungroup() %>%
+  filter(GroupAbundance > 0)  %>%
+  group_by(Country, Site, Year, Month)  %>%
+  summarise(TotAbundance = sum(GroupAbundance),
+    NumGroups = n_distinct(Group),
+    Shannon = diversity(GroupAbundance, index = "shannon")) %>%
+  ungroup()
+
+m_abun <- aov(log(TotAbundance+1) ~ Country + Year + Month + Country:Site, data = dat_overview)
+print(m_abun$call)
+print(summary(m_abun))
+# Significant effect of country
+
+m_groups <- aov(NumGroups ~ Country + Year + Month + Country:Site, data = dat_overview)
+print(m_groups$call)
+print(summary(m_groups))
+# Significant effect of country
+
+m_div <- aov(Shannon ~ Country + Year + Month + Country:Site, data = dat_overview)
+print(m_div$call)
+print(summary(m_div))
+# Significant effect of country and site 
+
+jitter_width <- 0.15
+point_size <- 0.5
+
+p1 <- ggplot(dat_overview, aes(x = Country, y = TotAbundance)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_jitter(width = jitter_width, size = point_size) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x= NULL, y = "Abundance")
+
+p2 <- ggplot(dat_overview, aes(x = Country, y = NumGroups)) +
+  geom_boxplot(outliers = FALSE) +
+  geom_jitter(width = jitter_width, size = point_size) + 
+  theme_classic() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x= NULL, y = "Number of groups")
+
+p3 <- ggplot(dat_overview, aes(x = Country, y = Shannon)) +
+ geom_boxplot(outliers = FALSE) +
+  geom_jitter(width = jitter_width, size = point_size) + 
+  theme_classic() + 
+   theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = NULL, y = "Shannon-Wiener")
+
+grid.arrange(p1, p2, p3, ncol = 3, bottom = "Country")
+```
+
+
+Trying the same but with genera.
+```{r anovas_genera, eval=TRUE, fig.cap="Distribution of diversity indices of genera by country.", fig.height=10, fig.width=10}
+
+plotlist <- list()
+jitter_width <- 0.15
+point_size <- 0.3
+
+# Running model first for epifauna data, then infauna
+for(set in c("Epifauna","Infauna")){
+  
+  dat_overview <- all_dat_env %>%
+    filter(Set == set & !is.na(Genus) & Abundance >0) %>%
+    filter(Abundance > 0)  %>%
+    mutate(across(c(Country, Site, Month), as.factor)) %>%
+    group_by(Country, Site, Year, Month, Genus)  %>%
+    summarise(GenusAbundance = sum(Abundance)) %>% # Summing the total abundance per genus (if more than one)
+    ungroup() %>%
+    group_by(Country, Site, Year, Month)  %>%
+    summarise(TotAbundance = sum(GenusAbundance),
+      NumGenus = n_distinct(Genus),
+      Shannon = diversity(GenusAbundance, index = "shannon")) %>%
+    ungroup()
+
+  print(paste0("Formulating ANOVAs for ", set))
+
+  m_abun <- aov(log(TotAbundance+1) ~ Country + Year + Month + Country:Site, data = dat_overview)
+  print(m_abun$call)
+  print(summary(m_abun))
+
+  m_genus <- aov(NumGenus ~ Country + Year + Month + Country:Site, data = dat_overview)
+  print(m_genus$call)
+  print(summary(m_genus))
+
+  m_div <- aov(Shannon ~ Country + Year + Month + Country:Site, data = dat_overview)
+  print(m_div$call)
+  print(summary(m_div))
+
+  p1 <- ggplot(dat_overview, aes(x = Country, y = log(TotAbundance+1))) +
+    geom_boxplot(outliers = FALSE) +
+    geom_jitter(width = jitter_width, size = point_size) + 
+    theme_classic() + 
+    theme(axis.text.x = element_text(angle = 90)) +
+    labs(x= NULL, y = "log(Abundance)")
+  
+  p2 <- ggplot(dat_overview, aes(x = Country, y = NumGenus)) +
+    geom_boxplot(outliers = FALSE) +
+    geom_jitter(width = jitter_width, size = point_size) + 
+    theme_classic() + 
+    theme(axis.text.x = element_text(angle = 90)) +
+    labs(x= NULL, y = "Number of genera")
+  
+  p3 <- ggplot(dat_overview, aes(x = Country, y = Shannon)) +
+   geom_boxplot(outliers = FALSE) +
+    geom_jitter(width = jitter_width, size = point_size) + 
+    theme_classic() + 
+     theme(axis.text.x = element_text(angle = 90)) +
+    labs(x = NULL, y = "Shannon-Wiener")
+  
+  plotlist <- append(plotlist, list(p1, p2, p3))
+  }
+
+g <- grid.arrange(grobs=plotlist, ncol = 3, bottom = "Country")
+ggsave(g, file = "../Graphs/boxplots_diversity_genera.jpg", width=190, height=190,units="mm")
+rm(list=ls(pattern="m_"))
+rm(plotlist, p1, p2, p3)
+```
+
+NMDS on genus level gives warning "Best solution was not repeated" - not reliable results?
+```{r nmds_epifauna_genus, eval=TRUE, fig.cap="NMDS plot epifauna genera.", fig.height=10, fig.width=10}
+salinity_levels <- c("Low (<10)","Medium (10-15)","High (>15)")
+
+# Reshape data
+dat_w <- all_dat_env %>% 
+# Creating factor of salinity level
+  filter(!is.na(salinity))  %>%
+  mutate(salinity_factor = case_when(
+      salinity < 10 ~ salinity_levels[1],
+      salinity >= 10 & salinity < 15 ~ salinity_levels[2],
+      salinity >= 15 ~ salinity_levels[3])) %>%
+  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) %>%
+  #Remove missing data, select relevant data
+  filter(!(Site == "Finsbo" & Year==2024)) %>% 
+  filter(!is.na(Genus) & Set == "Epifauna" & Abundance>0) %>%
+  dplyr::select(!c(Group, ScientificName)) %>%
+  # Sum if multiple species within same genus
+  group_by(Site,Country,Year,Month,Replicate,Genus,Lat,Long,swm,salinity_factor) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  ungroup()  %>%
+  # Convert to wide format
+  pivot_wider(names_from = Genus, values_from = Abundance, values_fill = 0)  %>%   # Assuming missing value = 0
+  arrange(Country) 
+
+# Making community matrix
+comm_mat <- as.matrix(dat_w  %>%
+  dplyr::select(-(Site:salinity_factor)))
+
+colnames(comm_mat) <- colnames(dat_w  %>% dplyr::select(-(Site:salinity_factor)))
+rownames(comm_mat) <- paste(dat_w$Site,dat_w$Year,dat_w$Month,dat_w$Replicate, sep="_")
+
+ord.fauna <- metaMDS(comm_mat)
+#stressplot(ord.fauna)
+
+# Plot the NMDS with site names as text labels
+# Grouped by country
+countries <- unique(dat_w$Country)
+cols_countries <- rainbow(n = length(countries), alpha = 0.5)
+
+jpeg("../Graphs/MNDS_epifauna_genera.jpg", width=190, height=190,units="mm",res=300)
+plot(ord.fauna, type="n")
+ordiellipse(ord.fauna, dat_w$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
+orditorp(ord.fauna, type="n" ,display="sites",cex=0.7)
+legend("bottomright", legend = countries, col = cols, pch = 19, bty = "n")
+ordiellipse(ord.fauna, dat_w$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5)
+dev.off()
+
+```
+
+NMDS for infauna data gives warning of possibly insufficient data ("stress is (nearly) zero") and not meaningful results. 
+```{r nmds_infauna_genus, eval=TRUE, fig.cap="NMDS plot infauna genera.", fig.height=10, fig.width=10}
+salinity_levels <- c("Low (<10)","Medium (10-15)","High (>15)")
+
+# Reshape data
+dat_w <- all_dat_env %>% 
+# Creating factor of salinity level
+  filter(!is.na(salinity))  %>%
+  mutate(salinity_factor = case_when(
+      salinity < 10 ~ salinity_levels[1],
+      salinity >= 10 & salinity < 15 ~ salinity_levels[2],
+      salinity >= 15 ~ salinity_levels[3])) %>%
+  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) %>%
+  #Remove missing data, select relevant data
+  filter(!(Site == "Finsbo" & Year==2024)) %>% 
+  filter(!is.na(Genus) & Set == "Infauna" & Abundance>0) %>%
+  dplyr::select(!c(Group, ScientificName)) %>%
+  # Sum if multiple species within same genus
+  group_by(Site,Country,Year,Month,Replicate,Genus,Lat,Long,swm,salinity_factor) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  ungroup()  %>%
+  # Convert to wide format
+  pivot_wider(names_from = Genus, values_from = Abundance, values_fill = 0)  %>%   # Assuming missing value = 0
+  arrange(Country) 
+
+# Making community matrix
+comm_mat <- as.matrix(dat_w  %>%
+  dplyr::select(-(Site:salinity_factor)))
+
+colnames(comm_mat) <- colnames(dat_w  %>% dplyr::select(-(Site:salinity_factor)))
+rownames(comm_mat) <- paste(dat_w$Site,dat_w$Year,dat_w$Month,dat_w$Replicate, sep="_")
+
+ord.fauna <- metaMDS(comm_mat)
+stressplot(ord.fauna)
+
+# Plot the NMDS with site names as text labels
+# Grouped by country
+countries <- unique(dat_w$Country)
+cols_countries <- rainbow(n = length(countries), alpha = 0.5)
+cols_salinity <- rainbow(n = length(salinity_levels), alpha = 0.5)
+
+plot(ord.fauna, type="n")
+ordiellipse(ord.fauna, dat_w$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
+orditorp(ord.fauna, type="n" ,display="sites",cex=0.7)
+legend("bottomright", legend = countries, col = cols, pch = 19, bty = "n")
+
+ordiellipse(ord.fauna, dat_w$salinity_factor, draw="polygon",label=TRUE, lty =1:3)
+
+```
+
+```{r yeartrend_gam, eval=FALSE}
+# Analyzing yearly trends using GAMs, not included
+library(mgcv)
+
+# Create dataframe for model predictions
+range_years <-  dat_overview  %>%
+  group_by(Country)  %>%
+  summarise(start_year = min(Year), end_year = max(Year))
+
+newdat <- data.frame(Country = rep(unique(dat_overview$Country), each = 56),
+                     Year = seq(min(dat_overview$Year),
+                                      max(dat_overview$Year))) %>%
+  left_join(range_years)  %>%
+  group_by(Country)  %>%
+  filter(Year >= start_year & Year <= end_year) %>%
+  ungroup() %>%
+  dplyr::select(Country, Year)
+
+# GAM models
+gam_abun <- gam(log(TotAbundance+1) ~ s(Year, by = Country, k = 3) + Country , data = dat_overview)
+summary(gam_abun)
+# No significant effects when using raw data
+# After log transformation, significant year effects for Norway
+
+gam_groups <- gam(NumGroups  ~ s(Year, by = Country, k = 3) + Country , data = dat_overview)
+summary(gam_groups)
+# Borderline for Norway  
+
+gam_div <- gam(Shannon  ~ s(Year, by = Country, k = 3) + Country , data = dat_overview)
+summary(gam_div)
+# No significant effects
+
+# Model predictions
+
+newdat <- newdat  %>%
+  mutate(TotAbundance = predict.gam(gam_abun, newdata = newdat),
+         NumGroups = predict.gam(gam_groups, newdata = newdat),
+         Shannon = predict.gam(gam_div, newdata = newdat))
+
+p1 <- ggplot(dat_overview, aes(x = Year, y = log(TotAbundance+1), color = Country)) +
+  geom_point() +
+  geom_line(data = newdat, aes(x = Year, y = TotAbundance, color = Country)) +
+  theme_minimal() + 
+  theme(legend.position = "top") +
+  labs(x= NULL, y = "log(Abundance)")
+
+p2 <- ggplot(dat_overview, aes(x = Year, y = NumGroups, color = Country)) +
+  geom_point() +
+  geom_line(data = newdat, aes(x = Year, y = NumGroups, color = Country)) +
+  theme_minimal() + 
+  theme(legend.position = "none") +
+ labs(x= NULL, y = "Number of groups")
+
+p3 <- ggplot(dat_overview, aes(x = Year, y = Shannon, color = Country)) +
+  geom_point() +
+  geom_line(data = newdat, aes(x = Year, y = Shannon, color = Country)) +
+  theme_minimal() + 
+  theme(legend.position = "none") +
+  labs(x = NULL, y = "Shannon-Wiener")
+
+grid.arrange(p1, p2, p3, ncol = 1, bottom = "Year")
+
+```

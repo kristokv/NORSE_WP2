@@ -1,0 +1,544 @@
+---
+title: "Epifauna analysis"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+# Select data
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(plyr)
+library(corrplot)
+library(tidyverse)
+
+#setwd("D:/Users/e1002963/Local/NORSE")
+
+load("Epifauna_analysis_data.RData")
+
+```
+```{r fig.cap="Distribution of observations from all sites over time. Size indicates maximum number of groups observed that year."}
+
+BD <- all_dat_ed[all_dat_ed$Abundance > 0, ]
+BD <- ddply(BD, c("Year", "Site"), summarise, N = length(unique(Group)))
+
+g <- ggplot(BD, aes(Year, Site, size = N)) + geom_point()
+g <- g + scale_size(breaks = c(1, 5, 9))
+g <- g + ylab("")
+g <- g + theme_classic()
+g
+
+
+three <- table(all_dat_ed$Year, all_dat_ed$Site)
+to_keep <- colnames(three)[colSums(three >= 3) >= 3]
+
+dat <- all_dat_ed[all_dat_ed$Site %in% to_keep, ]
+
+```
+
+For the initial analysis we chose sites with more than 3 years with data, resulting in `r length(to_keep)` sites.
+
+
+```{r fig.cap="Distribution of locations with min. 3 years of data."}
+library(ggrepel)
+sites <- dat %>%
+  dplyr::select(Long, Lat, Site) %>% 
+  filter(!is.na(Long)) %>%
+  unique()
+
+# Gåsø:
+# 58.233/11.400
+
+
+g <- ggplot(sites, aes(Long, Lat)) + geom_point() 
+g <- g + geom_label_repel(aes(label = Site),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  segment.color = 'grey50')
+g <- g + borders(xlim = range(dat$Long, na.rm=T),ylim = range(dat$Lat, na.rm=T))
+g <- g + theme_classic()
+g
+
+
+```
+
+
+# Analysing differences in species occurrence
+
+## Model & validation
+
+```{r}
+#### HMSC
+library(Hmsc)
+
+variables <- c("Site", "Country", "Year", "Month", "Lat", "Long", "swm", "salinity")
+dat_w <- dcast(dat, Site + Country + Year + Month + Lat + Long + swm + salinity ~ Group,
+               value.var = "Abundance", fill = 0)
+
+dat_w <- dat_w[!dat_w$Site == "Gåsö", ]
+dat_w$Month <- as.numeric(gsub("summer", 8, dat_w$Month))
+
+species <- colnames(dat_w)[!names(dat_w) %in% variables]
+Y <- dat_w[, names(dat_w) %in% species]
+
+##
+dat_w$Site <- as.factor(dat_w$Site)
+dat_w$Country <- as.factor(dat_w$Country)
+# dat_w$Replicate <- as.factor(dat_w$Replicate)
+
+XData <- dat_w[, c("Year", "Site", "Month", "Country", "salinity")]
+
+## Study design
+studyDesign <- matrix(NA, nrow(Y), ncol = 2)
+studyDesign[, 1] <- paste0("sample_", as.factor(1:nrow(dat_w))) # Sample
+studyDesign[, 2] <- dat_w$Site
+# studyDesign[, 3] <- dat_w$Country
+
+studyDesign = as.data.frame(studyDesign)
+colnames(studyDesign) = c("Sample","Site")
+studyDesign[,1] = as.factor(studyDesign[,1])
+studyDesign[,2] = as.factor(studyDesign[,2])
+# studyDesign[,3] = as.factor(studyDesign[,3])
+
+#Set random effects
+rL1 = HmscRandomLevel(units = unique(studyDesign$Sample))
+rL2 = HmscRandomLevel(units = unique(studyDesign$Site))
+# rL3 = HmscRandomLevel(units = unique(studyDesign$Country))
+
+xform <- ~Year + Month + Country + salinity# + swm
+
+m = Hmsc(Y = 1 * (Y > 0), XData = XData, XFormula = xform,
+         studyDesign = studyDesign,
+         ranLevels = list(Sample = rL1, Site = rL2) ,
+         distr = "probit")
+
+thin <- 10
+samples <- 500
+transient <- 0.5 * (samples * thin)
+
+# m = sampleMcmc(m, thin = thin, samples = samples, transient = transient,
+#                nChains = 2, verbose = 0)
+
+##
+
+#load("epifauna_model_validation.RData")
+
+##
+```
+
+
+```{r}
+
+mpost = convertToCodaObject(m)
+# effectiveSize(mpost$Beta)
+# gelman.diag(mpost$Beta, multivariate = FALSE)$psrf
+par(mfrow = c(2,2))
+hist(effectiveSize(mpost$Beta), main="ess(beta)")
+hist(gelman.diag(mpost$Beta, multivariate=FALSE)$psrf, main="psrf(beta)")
+hist(effectiveSize(mpost$Omega[[1]]), main="ess(omega)")
+hist(gelman.diag(mpost$Omega[[1]], multivariate=FALSE)$psrf, main="psrf(omega)")
+
+```
+
+
+```{r}
+partition = createPartition(m, nfolds = 10)
+preds = computePredictedValues(m, partition = partition)
+
+evaluateModelFit(hM = m, predY = preds)
+
+save(preds, m, file = "output/epifauna_pa_model_validation.RData")
+
+```
+
+## Graphs
+
+```{r}
+load("epifauna_pa_model_validation.RData")
+## Plot Beta
+postBeta = getPostEstimate(m, parName = "Beta")
+plotBeta(m, post = postBeta, param = "Support",
+         supportLevel = 0.95)
+
+```
+
+
+```{r}
+
+OmegaCor = computeAssociations(m)
+supportLevel = 0.95
+toPlot = ((OmegaCor[[1]]$support > supportLevel)
+          + (OmegaCor[[1]]$support < (1 - supportLevel)) > 0) * OmegaCor[[1]]$mean
+corrplot(toPlot, method = "color",
+         col = colorRampPalette(c("blue", "white", "red"))(200),
+         title = paste("random effect level:", m$rLNames[1]),
+         mar = c(0, 0, 1, 0))
+
+
+```
+
+
+```{r}
+
+toPlot = ((OmegaCor[[2]]$support>supportLevel)
+          + (OmegaCor[[2]]$support<(1-supportLevel))>0)*OmegaCor[[2]]$mean
+corrplot(toPlot, method = "color",
+         col = colorRampPalette(c("blue","white","red"))(200),
+         title = paste("random effect level:", m$rLNames[2]), mar=c(0,0,1,0))
+
+```
+
+
+```{r}
+group <- c(1, 1, 2, 3, 3, 3, 3, 3, 4)
+groupnames = c("Year","Month","Country", "Salinity")
+#Compute and plot VP
+varp = computeVariancePartitioning(hM = m, group = group,
+                                   groupnames = groupnames)
+plotVariancePartitioning(m, varp)
+
+```
+
+
+```{r}
+####
+
+Gradient = constructGradient(m, focalVariable = "Year",
+                             non.focalVariables = list(Site = list(3, "Tvärminne"),
+                                                       Month = list(3, "August"),
+                                                       Country = list(3, "Finland"),
+                                                       Salinity = list(3, "Salinity")))
+m$XData$Replicate <- NULL
+
+predY = predict(m, XData = Gradient$XDataNew,
+                studyDesign = Gradient$studyDesignNew,
+                ranLevels = Gradient$rLNew, expected = TRUE)
+
+plotGradient(m, Gradient, pred = predY, measure = "S", las = 1,
+             showData = TRUE, main = 'Species richness (measure="S")')
+
+```
+
+
+## Analysing changes in species abundance
+
+```{r}
+#### HMSC
+
+variables <- c("Site", "Country", "Year", "Month", "Lat", "Long", "swm", "salinity")
+dat_w <- dcast(dat, Site + Country + Year + Month + Lat + Long + swm + salinity ~ Group,
+               value.var = "Abundance", fill = 0)
+
+dat_w <- dat_w[!dat_w$Site == "Gåsö", ]
+dat_w$Month <- as.numeric(gsub("summer", 8, dat_w$Month))
+
+species <- colnames(dat_w)[!names(dat_w) %in% variables]
+Y <- dat_w[, names(dat_w) %in% species]
+
+##
+dat_w$Site <- as.factor(dat_w$Site)
+dat_w$Country <- as.factor(dat_w$Country)
+# dat_w$Replicate <- as.factor(dat_w$Replicate)
+
+XData <- dat_w[, c("Year", "Site", "Month", "Country", "salinity")]
+
+## Study design
+studyDesign <- matrix(NA, nrow(Y), ncol = 2)
+studyDesign[, 1] <- paste0("sample_", as.factor(1:nrow(dat_w))) # Sample
+studyDesign[, 2] <- dat_w$Site
+# studyDesign[, 3] <- dat_w$Country
+
+studyDesign = as.data.frame(studyDesign)
+colnames(studyDesign) = c("Sample","Site")
+studyDesign[,1] = as.factor(studyDesign[,1])
+studyDesign[,2] = as.factor(studyDesign[,2])
+# studyDesign[,3] = as.factor(studyDesign[,3])
+
+#Set random effects
+rL1 = HmscRandomLevel(units = unique(studyDesign$Sample))
+rL2 = HmscRandomLevel(units = unique(studyDesign$Site))
+# rL3 = HmscRandomLevel(units = unique(studyDesign$Country))
+
+xform <- ~Year + Month + Country + salinity# + swm
+
+m = Hmsc(Y = Y, XData = XData, XFormula = xform,
+         studyDesign = studyDesign,
+         ranLevels = list(Sample = rL1, Site = rL2) ,
+         distr = "poisson")
+
+thin <- 10
+samples <- 500
+transient <- 0.5 * (samples * thin)
+
+m = sampleMcmc(m, thin = thin, samples = samples, transient = transient,
+               nChains = 2, verbose = 0)
+
+##
+
+# load("output/epifauna_model_validation.RData")
+
+##
+```
+
+
+```{r}
+
+mpost = convertToCodaObject(m)
+# effectiveSize(mpost$Beta)
+# gelman.diag(mpost$Beta, multivariate = FALSE)$psrf
+par(mfrow = c(2,2))
+hist(effectiveSize(mpost$Beta), main="ess(beta)")
+hist(gelman.diag(mpost$Beta, multivariate=FALSE)$psrf, main="psrf(beta)")
+hist(effectiveSize(mpost$Omega[[1]]), main="ess(omega)")
+hist(gelman.diag(mpost$Omega[[1]], multivariate=FALSE)$psrf, main="psrf(omega)")
+
+```
+
+
+```{r}
+partition = createPartition(m, nfolds = 10)
+preds = computePredictedValues(m, partition = partition)
+
+evaluateModelFit(hM = m, predY = preds)
+
+save(preds, m, file = "output/epifauna_abund_model_validation.RData")
+
+```
+
+
+```{r}
+
+load("epifauna_abund_model_validation.RData")
+## Plot Beta
+postBeta = getPostEstimate(m, parName = "Beta")
+plotBeta(m, post = postBeta, param = "Support", supportLevel = 0.95)
+
+```
+
+
+```{r}
+library(corrplot)
+OmegaCor = computeAssociations(m)
+supportLevel = 0.95
+toPlot = ((OmegaCor[[1]]$support>supportLevel)
+          + (OmegaCor[[1]]$support<(1-supportLevel))>0)*OmegaCor[[1]]$mean
+corrplot(toPlot, method = "color",
+         col = colorRampPalette(c("blue","white","red"))(200),
+         title = paste("random effect level:", m$rLNames[1]), mar=c(0,0,1,0))
+```
+
+
+```{r}
+toPlot = ((OmegaCor[[2]]$support>supportLevel)
+          + (OmegaCor[[2]]$support<(1-supportLevel))>0)*OmegaCor[[2]]$mean
+corrplot(toPlot, method = "color",
+         col = colorRampPalette(c("blue","white","red"))(200),
+         title = paste("random effect level:", m$rLNames[2]), mar=c(0,0,1,0))
+```
+
+
+```{r}
+
+group <- c(1, 1, 2, 3, 3, 3, 3, 3, 4)
+groupnames = c("Year","Month","Country", "Salinity")
+#Compute and plot VP
+varp = computeVariancePartitioning(hM = m, group = group,
+                                   groupnames = groupnames)
+plotVariancePartitioning(m, varp)
+
+```
+
+
+```{r}
+####
+
+Gradient = constructGradient(m, focalVariable = "Year",
+                             non.focalVariables = list(Site = list(3, "Ängsö"),
+                                                       Month = list(3, "August")))
+m$XData$Replicate <- NULL
+
+predY = predict(m, XData = Gradient$XDataNew,
+                studyDesign = Gradient$studyDesignNew,
+                ranLevels = Gradient$rLNew, expected = TRUE)
+
+plotGradient(m, Gradient, pred = predY, measure = "S", las = 1,
+             showData = TRUE, main = 'Species richness (measure="S")')
+
+```
+
+# Kristina's tests
+Simple overviews of total abundance, species richness, diversity...
+Site nested within country in the ANOVA. Germany stands out with higher abundance and diversity. 
+
+```{r}
+library(gridExtra)
+library(vegan)
+
+
+dat_overview <- dat %>%
+  filter(!(Site == "Finsbo" & Year==2024)) %>% # Possible error, only zeroes
+  mutate(across(c(Country, Site, Month), as.factor)) %>%
+  group_by(Country, Site, Year, Month)  %>%
+  summarise(TotAbundance = sum(Abundance),
+    NumGroups = n_distinct(Group[Abundance > 0]),
+    Shannon = diversity(Abundance, index = "shannon")) %>%
+  ungroup()
+
+m_abun <- aov(log(TotAbundance+1) ~ Country + Year + Month + Country:Site, data = dat_overview)
+summary(m_abun)
+# Significant effect of country
+
+m_groups <- aov(NumGroups ~ Country + Year + Month + Country:Site, data = dat_overview)
+summary(m_groups)
+# Significant effect of country
+
+m_div <- aov(Shannon ~ Country + Year + Month + Country:Site, data = dat_overview)
+summary(m_div)
+# Significant effect of country and site 
+
+p1 <- ggplot(dat_overview, aes(x = Country, y = TotAbundance)) +
+  geom_boxplot() +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x= NULL, y = "Abundance")
+
+p2 <- ggplot(dat_overview, aes(x = Country, y = NumGroups)) +
+  geom_boxplot() +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x= NULL, y = "Number of groups")
+
+p3 <- ggplot(dat_overview, aes(x = Country, y = Shannon)) +
+  geom_boxplot() +
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(x = NULL, y = "Shannon-Wiener")
+
+grid.arrange(p1, p2, p3, ncol = 3, bottom = "Country")
+
+```
+
+Overall trends with year, must be separated by country since data from Germany are relatively recent and these stand out. Month is never significant, removed
+
+```{r}
+library(mgcv)
+
+# Create dataframe for model predictions
+range_years <-  dat_overview  %>%
+  group_by(Country)  %>%
+  summarise(start_year = min(Year), end_year = max(Year))
+
+newdat <- data.frame(Country = rep(unique(dat_overview$Country), each = 56),
+                     Year = seq(min(dat_overview$Year),
+                                      max(dat_overview$Year))) %>%
+  left_join(range_years)  %>%
+  group_by(Country)  %>%
+  filter(Year >= start_year & Year <= end_year) %>%
+  ungroup() %>%
+  dplyr::select(Country, Year)
+
+# GAM models
+gam_abun <- gam(log(TotAbundance+1) ~ s(Year, by = Country, k = 3) + Country , data = dat_overview)
+summary(gam_abun)
+# No significant effects when using raw data
+# After log transformation, significant year effects for Norway
+
+gam_groups <- gam(NumGroups  ~ s(Year, by = Country, k = 3) + Country , data = dat_overview)
+summary(gam_groups)
+# Borderline for Norway  
+
+gam_div <- gam(Shannon  ~ s(Year, by = Country, k = 3) + Country , data = dat_overview)
+summary(gam_div)
+# No significant effects
+
+# Model predictions
+
+newdat <- newdat  %>%
+  mutate(TotAbundance = predict.gam(gam_abun, newdata = newdat),
+         NumGroups = predict.gam(gam_groups, newdata = newdat),
+         Shannon = predict.gam(gam_div, newdata = newdat))
+
+p1 <- ggplot(dat_overview, aes(x = Year, y = log(TotAbundance+1), color = Country)) +
+  geom_point() +
+  geom_line(data = newdat, aes(x = Year, y = TotAbundance, color = Country)) +
+  theme_minimal() + 
+  theme(legend.position = "top") +
+  labs(x= NULL, y = "log(Abundance)")
+
+p2 <- ggplot(dat_overview, aes(x = Year, y = NumGroups, color = Country)) +
+  geom_point() +
+  geom_line(data = newdat, aes(x = Year, y = NumGroups, color = Country)) +
+  theme_minimal() + 
+  theme(legend.position = "none") +
+ labs(x= NULL, y = "Number of groups")
+
+p3 <- ggplot(dat_overview, aes(x = Year, y = Shannon, color = Country)) +
+  geom_point() +
+  geom_line(data = newdat, aes(x = Year, y = Shannon, color = Country)) +
+  theme_minimal() + 
+  theme(legend.position = "none") +
+  labs(x = NULL, y = "Shannon-Wiener")
+
+grid.arrange(p1, p2, p3, ncol = 1, bottom = "Year")
+
+```
+
+```{r}
+
+dat_w <- dat %>% 
+  filter(!(Site == "Finsbo" & Year==2024)) %>% # Possible error, only zeroes
+  pivot_wider(names_from = Group, values_from = Abundance, values_fill = 0)  %>%   # Assuming missing value = 0
+  arrange(Country)
+
+
+comm_mat <- as.matrix(dat_w  %>%
+  dplyr::select("polychaeta":"tanaidacea"))
+
+dimnames(comm_mat) <- list(paste0(dat_w$Site,dat_w$Year), names(dat_w)[c(9:17)])
+
+ord.fauna <- metaMDS(comm_mat)
+stressplot(ord.fauna)
+
+# Plot the NMDS with site names as text labels
+# Grouped by country
+countries <- unique(dat_w$Country)
+cols <- rainbow(n = length(countries), alpha = 0.5)
+
+plot(ord.fauna, type="n")
+ordiellipse(ord.fauna, dat_w$Country, draw="polygon",label=FALSE, col = cols, lty =0)
+orditorp(ord.fauna, type="n" ,display="sites",cex=0.7)
+legend("bottomright", legend = countries, col = cols, pch = 19, bty = "n")
+
+# Grouped by salinity level
+salinity_levels <- c("Low (<10)","Medium (10-20)","High (>20)")
+cols <- rainbow(n = length(salinity_levels), alpha = 0.5)
+
+dat_w <- dat_w  %>%
+  mutate(salinity_factor = case_when(
+      salinity < 10 ~ "Low (<10)",
+      salinity >= 10 & salinity < 20 ~ "Medium (10-20)",
+      salinity >= 20 ~ "High (>20)")) %>%
+  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE))
+
+plot(ord.fauna, type="n")
+ordiellipse(ord.fauna, dat_w$salinity_factor, draw="polygon",label=FALSE, col = cols, lty =0)
+orditorp(ord.fauna, type="n" ,display="sites",cex=0.7)
+legend("bottomright", legend = salinity_levels, title = "Salinity", col = cols, pch = 19, bty = "n")
+
+
+# Grouped by month
+dat_w <- dat_w  %>%
+  mutate(Month = if_else(Month == "summer", 7, as.numeric(Month)))
+
+countries <- unique(dat_w$Country)
+cols <- rainbow(n = length(countries), alpha = 0.5)
+
+plot(ord.fauna, type="n")
+ordiellipse(ord.fauna, dat_w$Month, draw="polygon",label=TRUE, col = cols, lty =0)
+orditorp(ord.fauna, type="n" ,display="sites",cex=0.7)
+
+```
