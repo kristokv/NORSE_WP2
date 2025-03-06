@@ -17,6 +17,7 @@ editor_options:
 ```{r settings}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE) 
 
+
 library(ggplot2)
 library(reshape2)
 library(plyr)
@@ -27,11 +28,25 @@ library(ggrepel)
 library(scatterpie)
 library(gridExtra)
 library(vegan)
+library(captioner)
 # Function to print tables
 print_kable = function(x) {
   print(kable_print_output <<- x)
   cat('\n')
 }
+
+# Figure labeling
+figs <- captioner(prefix="Figure")
+map_all <- figs(name="map_all","Sites with eelgrass fauna data across the Northern European countries. The color scale of the label indicates the number of years of data available for each site.")
+fig_months_years <- figs(name="fig_months_years","Distribution of observations from all sites over time. Size of the points indicate the number of months sampled that year, with color indicating which month.")
+anovas_genera <- figs(name="anovas_genera","Distribution of diversity indices of genera by country.")
+nmds_epifauna_genus<- figs(name="nmds_epifauna_genus","NMDS plot epifauna genera, showing grouping by country and salinity level.")
+nmds_infauna_genus<- figs(name="nmds_infauna_genus","NMDS plot epifauna genera, showing grouping by country and salinity level.")
+heatmap_genus_epifauna<- figs(name="heatmap_genus_epifauna","Heat map of epifauna genus abundance (log-transformed), only including sites with data collected after 2010.")
+heatmap_genus_infauna<- figs(name="heatmap_genus_infauna","Heat map of infauna genus abundance (log-transformed), only including sites with data collected after 2010.")
+
+salinity_levels <- c("Low (<10)","Medium (10-15)","High (>15)")
+
 
 load("../../infauna_epifauna_merge_group_analysis_05032025.RData")  # Data grouped at class/order/family level
 all_dat_g_env_t <- all_dat_g_env_t %>%
@@ -39,19 +54,28 @@ all_dat_g_env_t <- all_dat_g_env_t %>%
   # Site with missing long/lat (Nøtterøy) assumed to be 10.445 E/59.167 N
   mutate(Long = case_when(is.na(Long) ~ 10.445, .default =  Long)) %>%
   mutate(Lat = case_when(is.na(Long) ~ 59.167, .default =  Lat)) %>%
-  mutate(Month = case_when(is.na(Month) ~ 8, .default =  Month))
-  
+  mutate(Month = case_when(is.na(Month) ~ 8, .default =  Month))  %>%
+   mutate(salinity_factor = case_when(
+      salinity < 10 ~ salinity_levels[1],
+      salinity >= 10 & salinity < 15 ~ salinity_levels[2],
+      salinity >= 15 ~ salinity_levels[3])) %>%
+  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) 
+
 load("../../infauna_epifauna_analysis_05032025.RData") # Data at genus/species level 
 all_dat_env_t <- all_dat_env_t %>%
   mutate(Site = case_when(grepl("Finsbo",   Site) ~ "Finsbo", .default =  Site)) %>%
   # Site with missing long/lat (Nøtterøy) assumed to be 10.445 E/59.167 N
   mutate(Long = case_when(is.na(Long) ~ 10.445, .default =  Long)) %>%
   mutate(Lat = case_when(is.na(Long) ~ 59.167, .default =  Lat)) %>%
-  mutate(Month = case_when(is.na(Month) ~ 8, .default =  Month))
+  mutate(Month = case_when(is.na(Month) ~ 8, .default =  Month))%>%
+   mutate(salinity_factor = case_when(
+      salinity < 10 ~ salinity_levels[1],
+      salinity >= 10 & salinity < 15 ~ salinity_levels[2],
+      salinity >= 15 ~ salinity_levels[3])) %>%
+  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) 
 
 ```
 
-Tables summarizing the data.
 
 ```{r table_data}
 # Number of sites per country and range of years 
@@ -76,9 +100,8 @@ kable(site_table, caption = "All sites with available eelgrass fauna data, range
 rm(country_table, site_table)
 ```
 
-Maps of the distribution of sites, including all sites or only sites with min. two years of data.
 
-```{r map_all, fig.cap="Sites with eelgrass fauna data across the Northern European countries. The color scale of the label indicates the number of years of data available for each site. ", fig.height=10, fig.width=10}
+```{r map_all, fig.cap=map_all, fig.height=10, fig.width=10}
 
 sites <- all_dat_env_t %>%
   dplyr::select(Long, Lat, Site, Year, Set) %>% 
@@ -126,9 +149,8 @@ rm(sites)
 
 ```
 
-Figures of the distributions of years and months of data
 
-```{r fig_months_years, eval=TRUE, fig.cap="Distribution of observations from all sites over time. Size of the points indicate the number of months sampled that year, with color indicating which month.", fig.height=6, fig.width=10}
+```{r fig_months_years, eval=TRUE, fig.cap=fig_months_years, fig.height=6, fig.width=10}
 
 pie_data <- all_dat_env_t %>%
   mutate(Country_Site = paste(Country, Site, sep = ", "),
@@ -164,8 +186,7 @@ rm(pie_data, countrysite2num)
 Simple overviews of total abundance, richness, diversity on the genus level.
 Site nested within country in the ANOVA. Germany stands out with higher abundance and diversity. 
 
-Trying the same but with genera.
-```{r anovas_genera, eval=FALSE, fig.cap="Distribution of diversity indices of genera by country.", fig.height=10, fig.width=10}
+```{r anovas_genera, eval=TRUE, fig.cap=anovas_genera, fig.height=10, fig.width=10}
 
 plotlist <- list()
 jitter_width <- 0.15
@@ -175,7 +196,7 @@ point_size <- 0.3
 for(set in c("Epifauna","Infauna")){
   dat_overview <- all_dat_env_t %>%
     # If genus info is missing, use ScientificName instead ?
-    mutate(Genus = case_when(is.na(Genus) ~ ScientificName, .default =  Genus)) %>%
+    #mutate(Genus = case_when(is.na(Genus) ~ ScientificName, .default =  Genus)) %>%
     filter(Set == set ) %>%
     mutate(across(c(Country, Site, Month), as.factor)) %>%
     # Average species abundances if multiple  replicates within site
@@ -239,23 +260,17 @@ rm(plotlist, p1, p2, p3)
 ```
 
 NMDS on genus level for epifauna.
-```{r nmds_epifauna_genus, eval=FALSE, fig.cap="NMDS plot epifauna genera.", fig.height=10, fig.width=10}
-salinity_levels <- c("Low (<10)","Medium (10-15)","High (>15)")
+```{r nmds_epifauna_genus, eval=TRUE, fig.cap=nmds_epifauna_genus, fig.height=10, fig.width=10}
 
 # Reshape data
 dat_w <- all_dat_env_t %>% 
-# Creating factor of salinity level
-  filter(!is.na(salinity))  %>%
-  mutate(salinity_factor = case_when(
-      salinity < 10 ~ salinity_levels[1],
-      salinity >= 10 & salinity < 15 ~ salinity_levels[2],
-      salinity >= 15 ~ salinity_levels[3])) %>%
-  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) %>%
+  # If genus info is missing, use ScientificName instead ?
+  #mutate(Genus = case_when(is.na(Genus) ~ ScientificName, .default =  Genus)) %>%
   #Remove missing data, select relevant data
   filter(!(Site == "Finsbo" & Year==2024)) %>% 
-  filter(!is.na(Genus) & Set == "Epifauna") %>%
+  filter(!is.na(Genus) & Set == "Epifauna" & !is.na(salinity_factor)) %>%
   dplyr::select(!c(Group)) %>%
-  # Average species abundances if multiple  replicates within site?
+  # Average species abundances if multiple  replicates within site
   mutate(Replicate = replace_na(Replicate, "1")) %>% # If no replicates, give same number
   group_by(Site,Country,Year,Month,Genus,ScientificName, swm, salinity_factor) %>% 
   summarise(Abundance = mean(Abundance)) %>%
@@ -270,46 +285,69 @@ dat_w <- all_dat_env_t %>%
   pivot_wider(names_from = Genus, values_from = Abundance, values_fill = 0)  %>%   # Assuming missing value = 0
   arrange(Country) 
 
+# Remove taxa only counted < X times?
+threshold <- 10
+#stress <- c()
+#for(threshold in 1:20){
+  
+keep_taxa <- names(dat_w  %>%
+  dplyr::select(-(Site:salinity_factor)) %>%
+  summarise(across(everything(), ~ sum(. > 0)))  %>%
+  select(where(~ . > threshold)))
+
 # Making community matrix
 comm_mat <- as.matrix(dat_w  %>%
-  dplyr::select(-(Site:salinity_factor)))
-
-colnames(comm_mat) <- colnames(dat_w  %>% dplyr::select(-(Site:salinity_factor)))
+  dplyr::select(all_of(keep_taxa)))
+  
+colnames(comm_mat) <- keep_taxa
 rownames(comm_mat) <- paste(dat_w$Site,dat_w$Year,dat_w$Month,sep="_")
 
 dists <-vegdist(comm_mat)
-ord.fauna <- metaMDS(dists, trymax = 100)
-stressplot(ord.fauna)
+ord.epifauna <- metaMDS(dists, trymax = 100)
+#stressplot(ord.epifauna)
+#stress <- c(stress,ord.epifauna$stress)
+print(ord.epifauna)
+
+#}
+#plot(1:20, stress)
+
+
+perm_epi <- adonis2(dists ~ as.factor(Country) + as.factor(salinity_factor), data = dat_w, permutations=9999, by ="terms")
+print(perm_epi)
+
+# https://rpubs.com/CPEL/NMDS
+# As a rule of thumb literature has identified the following cut-off values for stress-level:
+# Higher than 0.2 is poor (risks for false interpretation).
+# 0.1 - 0.2 is fair (some distances can be misleading for interpretation).
+# 0.05 - 0.1 is good (can be confident in inferences from plot).
+# Less than 0.05 is excellent (this can be rare).
 
 # Plot the NMDS with site names as text labels
 # Grouped by country
 countries <- unique(dat_w$Country)
 cols_countries <- rainbow(n = length(countries), alpha = 0.5)
+NMDS1<-ord.epifauna$points[,1]
+NMDS2<-ord.epifauna$points[,2]
 
-#jpeg("../Graphs/MNDS_epifauna_genera.jpg", width=190, height=190,units="mm",res=300)
-plot(ord.fauna, type="n")
-ordiellipse(ord.fauna, dat_w$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
-orditorp(ord.fauna, type="n" ,display="sites",cex=0.7)
+#jpeg("../Graphs/MNDS_epifauna_genera.jpg", width=190, height=140,units="mm",res=300)
+plot(ord.epifauna, type="n")
+ordiellipse(ord.epifauna, dat_w$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
+orditorp(ord.epifauna, type="n" ,display="sites",cex=0.5)
 legend("bottomright", legend = countries, col = cols_countries, pch = 19, bty = "n")
-ordiellipse(ord.fauna, dat_w$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5)
+ordiellipse(ord.epifauna, dat_w$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5, cex = 0.8) 
+mtext(side = 3,paste('NMDS for epifauna, stress =',round(ord.epifauna$stress,3))) #add stress to plot
+
 #dev.off()
 ```
 
 NMDS for infauna. 
-```{r nmds_infauna_genus, eval=FALSE, fig.cap="NMDS plot infauna genera.", fig.height=10, fig.width=10}
+```{r nmds_infauna_genus, eval=TRUE, fig.cap=nmds_infauna_genus, fig.height=10, fig.width=10}
 
 # Reshape data
 dat_w <- all_dat_env_t %>% 
-# Creating factor of salinity level
-  filter(!is.na(salinity))  %>%
-  mutate(salinity_factor = case_when(
-      salinity < 10 ~ salinity_levels[1],
-      salinity >= 10 & salinity < 15 ~ salinity_levels[2],
-      salinity >= 15 ~ salinity_levels[3])) %>%
-  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) %>%
   #Remove missing data, select relevant data
+  filter(!is.na(Genus) & !is.na(salinity_factor) & Set == "Infauna") %>%
   filter(!(Site == "Finsbo" & Year==2024)) %>% 
-  filter(!is.na(Genus) & Set == "Infauna") %>%
   dplyr::select(!c(Group)) %>%
   # Average species abundances if multiple  replicates within site?
   mutate(Replicate = replace_na(Replicate, "1")) %>% # If no replicates, give same number
@@ -334,8 +372,9 @@ colnames(comm_mat) <- colnames(dat_w  %>% dplyr::select(-(Site:salinity_factor))
 rownames(comm_mat) <- paste(dat_w$Site,dat_w$Year,dat_w$Month,sep="_")
 
 dists <-vegdist(comm_mat)
-ord.fauna <- metaMDS(dists, trymax = 100)
-stressplot(ord.fauna)
+ord.infauna <- metaMDS(dists, trymax = 100)
+print(ord.infauna)
+#stressplot(ord.infauna)
 
 # Plot the NMDS with site names as text labels
 # Grouped by country
@@ -343,17 +382,21 @@ countries <- unique(dat_w$Country)
 cols_countries <- rainbow(n = length(countries), alpha = 0.5)
 cols_salinity <- rainbow(n = length(salinity_levels), alpha = 0.5)
 
-plot(ord.fauna, type="n")
-ordiellipse(ord.fauna, dat_w$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
-orditorp(ord.fauna, type="n" ,display="sites",cex=0.7)
+#jpeg("../Graphs/MNDS_infauna_genera.jpg", width=190, height=140,units="mm",res=300)
+plot(ord.infauna, type="n")
+ordiellipse(ord.infauna, dat_w$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
+orditorp(ord.infauna, display="sites",cex=0.7)
 legend("bottomright", legend = countries, col = cols_countries, pch = 19, bty = "n")
-ordiellipse(ord.fauna, dat_w$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5)
+ordiellipse(ord.infauna, dat_w$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5)
+mtext(side = 3,paste('NMDS for infauna, stress =',round(ord.infauna$stress,3))) #add stress to plot
+
+#dev.off()
 
 ```
 
 Investigate dominant genera, focusing on last 20 yrs and summer months (June to September)
 
-```{r heatmap_genus, eval=FALSE, fig.cap="Heat map of species abundance (log-transformed), only including sites with data collected after 2010.", fig.height=10, fig.width=10}
+```{r heatmap_genus_epifauna, eval=TRUE, fig.cap="Heat map of epifauna genus abundance (log-transformed), only including sites with data collected after 2010 and months 6-9.", fig.height=12, fig.width=10}
 
 # Reshape data
 dat_heat <- all_dat_env_t %>% 
@@ -361,6 +404,40 @@ dat_heat <- all_dat_env_t %>%
   filter(Year>2010 & Month %in% c(6:9)) %>% 
   filter(!(Site == "Finsbo" & Year==2024)) %>% 
   filter(!is.na(Genus) & Set == "Epifauna") %>%
+  dplyr::select(!c(Group)) %>%
+  # Average species abundances if multiple  replicates within site?
+  mutate(Replicate = replace_na(Replicate, "1")) %>% # If no replicates, give same number
+  group_by(Site,Country,Year,Month,Genus,ScientificName) %>% 
+  summarise(Abundance = mean(Abundance)) %>%
+  ungroup()  %>%
+  # Sum if multiple species within same genus
+  group_by(Site,Country,Year,Month,Genus) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  ungroup()  %>%
+  # Average values per country
+  group_by(Country,Genus) %>% 
+  summarise(Abundance = sum(Abundance)) %>%
+  ungroup()  %>%
+  # Remove rows with only zeroes
+  filter(Abundance > 0)  %>%
+  mutate(species = factor(Genus, levels = sort(unique(Genus))))
+
+ggplot(dat_heat, aes(x = Country, y = Genus, fill = log(Abundance+1))) +
+  geom_tile() +
+  scale_fill_gradientn(colours = rev(heat.colors(10))) +
+  theme_minimal() +
+  labs(title = "Genus abundance per country (log(N+1))", x = "Country", y = "Genus", fill = "lnAbundance")
+
+```
+
+```{r heatmap_genus_infauna, eval=TRUE, fig.cap="Heat map of infaunga genus abundance (log-transformed), only including sites with data collected after 2010 and months 6-9.", fig.height=12, fig.width=10}
+
+# Reshape data
+dat_heat <- all_dat_env_t %>% 
+  #Remove missing data, select relevant data
+  filter(Year>2010 & Month %in% c(6:9)) %>% 
+  filter(!(Site == "Finsbo" & Year==2024)) %>% 
+  filter(!is.na(Genus) & Set == "Infauna") %>%
   dplyr::select(!c(Group)) %>%
   # Average species abundances if multiple  replicates within site?
   mutate(Replicate = replace_na(Replicate, "1")) %>% # If no replicates, give same number
