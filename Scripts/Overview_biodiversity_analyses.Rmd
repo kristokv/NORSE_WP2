@@ -110,18 +110,20 @@ sites <- all_dat_env_t %>%
   summarise(Num.years = length(unique(Year)), Fauna = paste0(sort(unique(Set)), collapse=","))  %>%
   mutate_at('Fauna', str_replace, 'Epifauna,Infauna', 'Both')
 
-g <- ggplot(sites, aes(Long, Lat, shape = Fauna)) + geom_point() + 
-  borders(xlim = range(sites$Long, na.rm=T),ylim = range(sites$Lat, na.rm=T)) + 
+g <- ggplot(sites, aes(Long, Lat, shape = Fauna)) +
+  borders(xlim = range(sites$Long, na.rm=T),ylim = range(sites$Lat, na.rm=T), fill="black") + 
   theme_classic() + 
+  geom_point(color="cyan", size = 1.5) + 
   geom_label_repel(data = sites,aes(Long, Lat, label = Site, color=Num.years),
-                  box.padding   = 0.15, 
+                  box.padding   = 0.4, 
+                  label.padding   = 0.1, 
                   size=3,
                   max.overlaps = length(sites$Site),
-                  segment.color = 'black') +
+                  segment.color = 'cyan') +
   scale_colour_gradient2(low = "grey",high = "black")
 g
 
-ggsave("../Graphs/map_all_sites.jpg", width=190, height=150,units="mm")
+ggsave("../Graphs/map_all_sites.jpg", width=190, height=170,units="mm")
 ```
 
 ```{r map_selected, eval=FALSE, fig.cap="Sites minimum two years of eelgrass fauna data across the Northern European countries. The color scale of the label indicates the number of years of data available for each site.", fig.height=10, fig.width=10}
@@ -262,7 +264,7 @@ rm(plotlist, p1, p2, p3)
 NMDS on genus level for epifauna.
 ```{r nmds_epifauna_genus, eval=TRUE, fig.cap=nmds_epifauna_genus, fig.height=10, fig.width=10}
 
-# Reshape data
+# Reshape data to wide format
 dat_w_epi <- all_dat_env_t %>% 
   # If genus info is missing, use ScientificName instead ?
   #mutate(Genus = case_when(is.na(Genus) ~ ScientificName, .default =  Genus)) %>%
@@ -302,6 +304,7 @@ comm_mat_epi <- as.matrix(dat_w_epi  %>%
 colnames(comm_mat_epi) <- keep_taxa
 rownames(comm_mat_epi) <- paste(dat_w_epi$Site,dat_w_epi$Year,dat_w_epi$Month,sep="_")
 
+# Calculating distance matrix and NMDS
 dists_epi <-vegdist(comm_mat_epi)
 ord.epifauna <- metaMDS(dists_epi, trymax = 100)
 #stressplot(ord.epifauna)
@@ -318,38 +321,56 @@ print(ord.epifauna)
 # 0.05 - 0.1 is good (can be confident in inferences from plot).
 # Less than 0.05 is excellent (this can be rare).
 
-# Plot the NMDS with site names as text labels
-# Grouped by country
+# Plot the NMDS with site names as text labels, grouped by country and salinity level
 countries <- unique(dat_w_epi$Country)
 cols_countries <- rainbow(n = length(countries), alpha = 0.5)
-NMDS1<-ord.epifauna$points[,1]
-NMDS2<-ord.epifauna$points[,2]
 
-#jpeg("../Graphs/MNDS_epifauna_genera.jpg", width=190, height=140,units="mm",res=300)
+#jpeg("../Graphs/MNDS_epifauna_genera.jpg", width=190, height=170,units="mm",res=300)
 plot(ord.epifauna, type="n")
 ordiellipse(ord.epifauna, dat_w_epi$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
 orditorp(ord.epifauna, type="n" ,display="sites",cex=0.5)
-legend("bottomright", legend = countries, col = cols_countries, pch = 19, bty = "n")
+legend("bottomleft", legend = countries, col = cols_countries, pch = 19, bty = "n")
 ordiellipse(ord.epifauna, dat_w_epi$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5, cex = 0.8) 
 mtext(side = 3,paste('NMDS for epifauna, stress =',round(ord.epifauna$stress,3))) #add stress to plot
-
 #dev.off()
 ```
 
-```{r permanova_epifauna_genus, eval=FALSE}
+```{r permanova_epifauna_genus, eval=TRUE}
 # Perform PERMANOVA to investigate significance of factors
 perm_epi <- adonis2(dists_epi ~ as.factor(Country) + as.factor(salinity_factor), data = dat_w_epi, permutations=9999, by ="terms")
 print(perm_epi)
 
 # SIMPER to identify taxa contributing to difference
 sim_epi <- simper(comm_mat_epi, dat_w_epi$Country)
-summary(sim_epi)
 
 # check https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/simper/ 
-# sim_epi %>%
-#   filter(p <= 0.05) %>%
-#   dplyr::select(Species, average, Comparison, Position)
+# summary(sim_epi)$Germany_Norway %>%
+#   round(3) %>%
+#   head()
 
+comparisons <- names(sim_epi)
+comparisons_colnames <- gsub(" ",".",comparisons)
+
+simper.results <- c()
+for(i in 1:length(comparisons)) {
+  temp <- summary(sim_epi)[as.character(comparisons[i])] %>%
+    as.data.frame()
+  colnames(temp) <- gsub(paste(comparisons_colnames[i],".", sep = ""), "", colnames(temp))
+  temp <- temp %>%
+    mutate(Comparison = comparisons[i],
+    Position = row_number()) %>%
+      rownames_to_column(var = "Genus")
+  simper.results <- rbind(simper.results, temp)
+}
+
+simper_top <- simper.results %>%
+  filter(Position == 1) %>%
+  dplyr::select(Comparison, Genus, p)
+  #filter(Position %in% c(1:3)) %>%
+  #filter(p <= 0.05) %>%
+  #dplyr::select(Comparison, Genus, Position, p)
+
+print(simper_top)
 
 ```
 
@@ -357,7 +378,7 @@ NMDS for infauna.
 ```{r nmds_infauna_genus, eval=TRUE, fig.cap=nmds_infauna_genus, fig.height=10, fig.width=10}
 
 # Reshape data
-dat_w <- all_dat_env_t %>% 
+dat_w_in <- all_dat_env_t %>% 
   #Remove missing data, select relevant data
   filter(!is.na(Genus) & !is.na(salinity_factor) & Set == "Infauna") %>%
   filter(!(Site == "Finsbo" & Year==2024)) %>% 
@@ -378,35 +399,64 @@ dat_w <- all_dat_env_t %>%
   arrange(Country) 
 
 # Making community matrix
-comm_mat <- as.matrix(dat_w  %>%
+comm_mat_in <- as.matrix(dat_w_in  %>%
   dplyr::select(-(Site:salinity_factor)))
 
-colnames(comm_mat) <- colnames(dat_w  %>% dplyr::select(-(Site:salinity_factor)))
-rownames(comm_mat) <- paste(dat_w$Site,dat_w$Year,dat_w$Month,sep="_")
+colnames(comm_mat_in) <- colnames(dat_w_in  %>% dplyr::select(-(Site:salinity_factor)))
+rownames(comm_mat_in) <- paste(dat_w_in$Site,dat_w_in$Year,dat_w_in$Month,sep="_")
 
-dists <-vegdist(comm_mat)
-ord.infauna <- metaMDS(dists, trymax = 100)
+dists_in <-vegdist(comm_mat_in)
+ord.infauna <- metaMDS(dists_in, trymax = 100)
 print(ord.infauna)
 #stressplot(ord.infauna)
 
-perm_in <- adonis2(dists ~ as.factor(Country) + as.factor(salinity_factor), data = dat_w, permutations=9999, by ="terms")
-print(perm_in)
-
 # Plot the NMDS with site names as text labels
 # Grouped by country
-countries <- unique(dat_w$Country)
+countries <- unique(dat_w_in$Country)
 cols_countries <- rainbow(n = length(countries), alpha = 0.5)
 cols_salinity <- rainbow(n = length(salinity_levels), alpha = 0.5)
 
-#jpeg("../Graphs/MNDS_infauna_genera.jpg", width=190, height=140,units="mm",res=300)
+#jpeg("../Graphs/MNDS_infauna_genera.jpg", width=190, height=170,units="mm",res=300)
 plot(ord.infauna, type="n")
-ordiellipse(ord.infauna, dat_w$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
+ordiellipse(ord.infauna, dat_w_in$Country, draw="polygon",label=FALSE, col = cols_countries, lty =0)
 orditorp(ord.infauna, display="sites",cex=0.7)
-legend("bottomright", legend = countries, col = cols_countries, pch = 19, bty = "n")
-ordiellipse(ord.infauna, dat_w$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5)
+legend("bottomleft", legend = countries, col = cols_countries, pch = 19, bty = "n")
+ordiellipse(ord.infauna, dat_w_in$salinity_factor, draw="polygon",label=TRUE, lty =1:3,col="lightgrey",alpha=0.5)
 mtext(side = 3,paste('NMDS for infauna, stress =',round(ord.infauna$stress,3))) #add stress to plot
-
 #dev.off()
+```
+
+```{r permanova_INfauna_genus, eval=TRUE}
+# Perform PERMANOVA to investigate significance of factors
+perm_in <- adonis2(dists_in ~ as.factor(Country) + as.factor(salinity_factor), data = dat_w_in, permutations=9999, by ="terms")
+print(perm_in)
+
+# SIMPER to identify taxa contributing to difference
+sim_in <- simper(comm_mat_in, dat_w_in$Country)
+
+comparisons <- names(sim_in)
+comparisons_colnames <- gsub(" ",".",comparisons)
+
+simper.results <- c()
+for(i in 1:length(comparisons)) {
+  temp <- summary(sim_in)[as.character(comparisons[i])] %>%
+    as.data.frame()
+  colnames(temp) <- gsub(paste(comparisons_colnames[i],".", sep = ""), "", colnames(temp))
+  temp <- temp %>%
+    mutate(Comparison = comparisons[i],
+    Position = row_number()) %>%
+      rownames_to_column(var = "Genus")
+  simper.results <- rbind(simper.results, temp)
+}
+
+simper_top <- simper.results %>%
+  filter(Position == 1) %>%
+  dplyr::select(Comparison, Genus, p)
+  #filter(Position %in% c(1:3)) %>%
+  #filter(p <= 0.05) %>%
+  #dplyr::select(Comparison, Genus, Position, p)
+
+print(simper_top)
 
 ```
 
