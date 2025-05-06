@@ -1,0 +1,83 @@
+---
+title: "Review"
+output: html_document
+date: "2025-04-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sf)
+library(ggplot2)
+library(readxl)
+library(ggspatial)
+
+```
+
+
+```{r}
+zostera <- read.delim("data/Zostera/0004443-250415084134356/0004443-250415084134356.csv")
+zostera <- zostera[zostera$coordinateUncertaintyInMeters <= 400, ]
+zostera <- zostera[!is.na(zostera$decimalLatitude), ]
+zostera <- zostera[!is.na(zostera$decimalLongitude), ]
+zostera <- zostera[zostera$decimalLongitude <= 25, ]
+
+zostera_sf <- st_as_sf(zostera[, names(zostera) %in% c("decimalLongitude", "decimalLatitude")],
+                       coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)
+
+# sf_use_s2(FALSE)
+eu <- read_sf("../MPA_EU/data/boundaries/EuropeSeas.shp")
+zostera_sf <- st_transform(zostera_sf, crs = st_crs(eu))
+zostera_buffer <- st_buffer(zostera_sf, dist = 100000)
+eu <- st_crop(eu, zostera_buffer)
+
+
+grid <- st_make_grid(st_bbox(eu), cellsize = 10000, square = FALSE)
+zostera_grid <- grid[lengths(st_intersects(grid, zostera_sf)) > 0, ]
+
+```
+
+
+```{r}
+data_sets <- read_xlsx("data/Eelgrass Fauna Data Catalogue.xlsx", sheet = "DATA")
+data_sets$Lat <- as.numeric(data_sets$Lat)
+data_sets <- data_sets[!is.na(data_sets$Lat), ]
+data_sets <- data_sets[!is.na(data_sets$Long), ]
+
+data_sets <- st_as_sf(data_sets[, names(data_sets) %in% c("Long", "Lat")],
+                      coords = c("Long", "Lat"), crs = 4326)
+
+data_sets <- st_transform(data_sets, crs = 3035)
+data_sets <- st_crop(data_sets, eu)
+
+```
+
+
+```{r}
+
+gg <- ggplot(eu) + geom_sf(col = "grey90", fill = "grey90")
+gg <- gg + geom_sf(data = zostera_grid, fill = "lightgreen", col = "lightgreen")
+gg <- gg + geom_sf(data = data_sets, fill = "black", col = "black")
+gg <- gg + coord_sf(expand = FALSE, crs = 3035)
+gg <- gg + annotation_scale(location = "br", width_hint = 0.5)
+# gg <- gg + annotation_north_arrow(location = "tr",
+#                                   which_north = "true",
+#                                   
+#         pad_y = unit(0.5, "in"),
+#         pad_x = unit(0.5, "in"),
+#         style = north_arrow_orienteering,
+#         width = unit(1, "cm"))
+gg <- gg + theme_classic()
+gg <- gg + theme(legend.position = c(0.5, 0.4),
+                 legend.background = element_blank(),
+                 panel.border = element_rect(color = "black", fill = NA),
+                 legend.text = element_text(size = 16),
+                 axis.text = element_text(size = 16),
+                 legend.title = element_blank())
+gg
+
+ggsave(filename = paste0("graphs/Zostera_map.png"),
+       dpi = 600, height = 7, width = 7)
+
+```
+
+

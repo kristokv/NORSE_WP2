@@ -1,0 +1,953 @@
+---
+title: "Data preparation"
+output: html_document
+date: "2025-01-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("D:/Users/e1002963/Local/NORSE")
+
+library(readxl)
+library(reshape2)
+library(plyr)
+library(ggplot2)
+library(terra)
+library(sf)
+
+```
+
+# Epi- and infauna
+
+Reordering all the data and combining it into long format. Keeping only variables needed for analysis.
+
+
+## Finland
+
+Notes on data editing
+
+Epifauna
+- Counts and counts per m2. All counts transformed to m2
+- Also for those all Zostera DW and shoot densities transformed to m2
+- Floats rounded as earlier were as well
+- One abundance marked as x, changed to NA
+- Remove observations with no Zostera
+
+Infauna
+- Sieve assumed based on comment
+
+Tvärminne
+- Assuming old data is already per m2
+- Using 1971 as year for old data
+
+```{r}
+fin <- as.data.frame(read_xlsx("data/EelgrassFaunaData-Finland.xlsx",
+                               sheet = "EpifaunaData"))
+var_fin <- c("Country", "Site", "Year", "Month",
+             "Reference ID (from \"DataSources\" sheet)",
+             "Number of replicates (N)", "Raw data or means?",
+             "Replicate # (if raw data) from 1 to N", "Epifauna or Infauna",
+             "Sampling method", "Mesh/sieve size (mm)", "Sample size (m-2)",
+             "Zostera dw", "Zostera shoot density (m-2)", "Notes")
+
+fin_l <- melt(fin, id.vars = var_fin, variable.name = "Taxa",
+              value.name = "Abundance", factorsAsStrings = TRUE)
+
+fin_l$Abundance <- round(as.numeric(fin_l$Abundance))
+fin_l[is.na(fin_l$Abundance), "Abundance"] <- 0
+
+## Standardising abundance to M2
+fin_l <- fin_l[!fin_l$Notes %in% "REMOVE (no Zostera)", ]
+fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$Abundance <-
+  1 / fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$`Sample size (m-2)` *
+  fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$Abundance
+
+## Standardising Zostera DW to M2
+fin_l$`Zostera dw (m-2)` <- fin_l$`Zostera dw`
+fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$`Zostera dw (m-2)` <-
+  1 / fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$`Sample size (m-2)` *
+  fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$`Zostera dw (m-2)`
+
+## Standardising Zostera shoot count to M2
+fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$`Zostera shoot density (m-2)` <-
+  1 / fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$`Sample size (m-2)` *
+  fin_l[!fin_l$Notes %in% "Data already standardised to m-2", ]$`Zostera shoot density (m-2)`
+
+fin_l$Taxa <- as.character(fin_l$Taxa)
+
+### Infauna
+fin_in <- as.data.frame(read_xlsx("data/EelgrassFaunaData-Finland.xlsx",
+                                  sheet = "InfaunaData"))
+
+names(fin_in)[!names(fin_in) %in% names(fin_l)]
+var_fin_in <- c(var_fin[c(var_fin) %in% names(fin_in)], "Sieve size (mm)")
+
+fin_lin <- melt(fin_in, id.vars = var_fin_in, variable.name = "Taxa",
+                value.name = "Abundance", factorsAsStrings = TRUE)
+
+fin_lin$Abundance <- as.numeric(fin_lin$Abundance)
+fin_lin[is.na(fin_lin$Abundance), "Abundance"] <- 0
+
+## Edits
+fin_lin[fin_lin$Notes %in% "sieve size is probably 0.5, as that is the standard sieve size for infauna in finalnd", ]$`Sieve size (mm)` <- 0.5
+fin_lin$`Sieve size (mm)` <- as.numeric(gsub(",", ".",
+                                             fin_lin$`Sieve size (mm)`))
+
+## Abundance
+fin_lin[fin_lin$`Sample size (m-2)` == "1 (0.00173)", "Sample size (m-2)"] <- 0.00173
+fin_lin$`Sample size (m-2)` <- as.numeric(gsub(",", ".",
+                                               fin_lin$`Sample size (m-2)`))
+
+fin_lin[!fin_lin$Notes %in%
+          "Data already standardised to m-2", ]$Abundance <-
+  1 /
+  fin_lin[!fin_lin$Notes %in% "Data already standardised to m-2", ]$`Sample size (m-2)` *
+  fin_lin[!fin_lin$Notes %in% "Data already standardised to m-2", ]$Abundance
+
+fin_lin$Taxa <- as.character(fin_lin$Taxa)
+
+########################### BOTH
+### Infauna
+fin_3 <- as.data.frame(read_xlsx("data/EelgrassFaunaData-Finland.xlsx",
+                                 sheet = "TvärminneSamplerData", n_max = 10))
+
+
+fin_3[!fin_3$`Raw data or means?` %in% "mean", ]$`Raw data or means?` <- "Raw data"
+
+names(fin_3)[!names(fin_3) %in% names(fin_l)]
+var_fin_in <- c(var_fin[c(var_fin) %in% names(fin_3)], "Mesh size (mm)")
+
+fin_3 <- melt(fin_3, id.vars = var_fin_in, variable.name = "Taxa",
+              value.name = "Abundance", factorsAsStrings = TRUE)
+
+fin_3$Abundance <- as.numeric(fin_3$Abundance)
+fin_3[is.na(fin_3$Abundance), "Abundance"] <- 0
+
+## Edits
+fin_3$Year <- as.numeric(gsub("1968-71", "1971", fin_3$Year))
+
+## Abundance
+fin_3[fin_3$`Raw data or means?` %in% "Raw data", "Abundance"] <-   1 /
+  fin_3[fin_3$`Raw data or means?` %in% "Raw data", ]$`Sample size (m-2)` *
+  fin_3[fin_3$`Raw data or means?` %in% "Raw data", ]$Abundance
+
+# fin_3[fin_3$`Raw data or means?` %in% "mean", "Zostera dw"] <-   1 /
+#   fin_3[fin_3$`Raw data or means?` %in% "mean", ]$`Sample size (m-2)` *
+#   fin_3[fin_3$`Raw data or means?` %in% "mean", ]$`Zostera dw`
+
+fin_3$Taxa <- as.character(fin_3$Taxa)
+fin_3$`Epifauna or Infauna` <- "Combined"
+
+###############
+
+
+
+fin_both <- merge(fin_l, fin_lin, all = TRUE)
+fin_both <- merge(fin_both, fin_3, all = TRUE)
+
+
+fin_both$Country <- "Finland"
+fin_both[fin_both$Site %in% c("Södra Stenskäret, Askö"), "Country"] <- "Sweden E"
+
+fin_both[fin_both$Site %in% c("Södra Stenskäret, Askö"), "Site"] <- "Stenskäret"
+fin_both[fin_both$`Sampling method` %in% "mesh bag", "Sampling method"] <- "Mesh bag"
+
+
+```
+
+
+
+
+## Sweden
+Notes on data editing
+- Assuming abundance is per sample
+- xs is foramnifera
+- Country set as east coast vs. west coast
+
+
+```{r}
+swe <- as.data.frame(read_xlsx("data/EelgrassFauna-Sweden.xlsx", sheet = "Epifauna", skip = 1))
+var_swe <- c("Country", "Site", "Year", "Month",
+             "Reference ID Number", "Sample size (m-2)",
+             "Reference ID (from \"DataSources\" sheet)",
+             "Number of replicates (N)", "Raw data or means?",
+             "Replicate # (if raw data) from 1 to N", "Epifauna or Infauna",
+             "Sampling method", "Sieve size (mm)", "Zostera dw, g/sample",
+             "Zostera shoot density", "Epiphytes", "Filamentous algae (not epiphytes)",
+             "Fucus serratus dw(g)/sample", "Fucus vesiculosus dw/sample",
+             "Cladophora/Chlorella dw/sample", "Notes", "Depth", "Potamogeton pectinatus",
+             "Zostera dw (m-2)", "Zostera shoot density (m-2)")
+
+names(swe)[names(swe) %in% "Mesh bag"] <- "Sampling method"
+swe[swe$`Sample size (m-2)` %in% "35cm x 35 cm =0,1225 m2 (x med 8,16 för 1 m2)", "Sample size (m-2)"] <- 0.1225
+swe$`Sample size (m-2)` <- as.numeric(swe$`Sample size (m-2)`)
+
+swe <- swe[!swe$`Replicate # (if raw data) from 1 to N` %in% "SD", ]
+swe$`Zostera shoot density (m-2)` <- gsub(" ", "", swe$`Zostera shoot density`)
+swe$`Zostera shoot density (m-2)` <- gsub(",", ".", swe$`Zostera shoot density (m-2)`)
+swe$`Zostera shoot density (m-2)` <- as.numeric(gsub("/m2", "", swe$`Zostera shoot density (m-2)`))
+
+swe$`Zostera dw (m-2)` <-  1 / swe$`Sample size (m-2)` * as.numeric(swe$`Zostera dw, g/sample`)
+swe$`Zostera dw, g/sample` <- gsub(",", ".", swe$`Zostera dw, g/sample`)
+swe$`Zostera dw, g/sample` <- as.numeric(gsub(" gDW/m2", "", swe$`Zostera dw, g/sample`))
+swe[is.na(swe$`Zostera dw (m-2)`), "Zostera dw (m-2)"] <- swe[is.na(swe$`Zostera dw (m-2)`), "Zostera dw, g/sample"]
+
+swe$xs <- NULL
+
+swe_l <- melt(swe, id.vars = var_swe, variable.name = "Taxa", value.name = "Abundance",
+              factorsAsStrings = TRUE)
+
+swe_l$Abundance <- as.numeric(swe_l$Abundance)
+swe_l$Abundance <- 1 / swe_l$`Sample size (m-2)` * swe_l$Abundance
+swe_l$Taxa <- as.character(swe_l$Taxa)
+swe_l[swe_l$`Sample size (m-2)` %in% 1, "Sample size (m-2)"] <- 0.1225
+
+
+swe_l$Country <- "Sweden W"
+swe_l[swe_l$Site %in% c("Sodra Stenskaret"), "Country"] <- "Sweden E"
+
+swe_l$Taxa <- gsub("_", " ", swe_l$Taxa)
+
+swe_l[swe_l$Site %in% c("Finsbo (to be analysed)"), "Site"] <- "Finsbo"
+swe_l[swe_l$Site %in% c("Lindholmen (to be analysed)"), "Site"] <- "Lindholmen"
+swe_l[swe_l$Site %in% c("Lindholmen, Fucus i Zost."), "Site"] <- "Lindholmen"
+swe_l[swe_l$Site %in% c("Sodra Stenskaret"), "Site"] <- "Stenskäret"
+
+
+## Infauna
+swe_in <- as.data.frame(read_xlsx("data/EelgrassFauna-Sweden.xlsx",
+                                  sheet = "Infauna"))
+
+names(swe_in)[!names(swe_in) %in% names(swe_l)]
+var_swe_in <- c(var_swe[c(var_swe) %in% names(swe_in)])
+swe_in <- swe_in[, !names(swe_in) %in% c("Zostera dw",
+                                         "Etc....104", "Etc....105",
+                                         "Etc....106", "Etc....107",
+                                         "Etc....108", "Etc....109",
+                                         "Notes...110", "Notes...111")]
+
+
+swe_lin <- melt(swe_in, id.vars = var_swe_in,
+                variable.name = "Taxa",
+                value.name = "Abundance",
+                factorsAsStrings = TRUE)
+
+## 10.4 cm diameter and 8 cm depth
+circle_area <- pi * (0.104 / 2)^2 
+m2_conversion <- 1 / circle_area
+
+swe_lin$Abundance <- as.numeric(swe_lin$Abundance)
+swe_lin[swe_lin$`Sample size (m-2)` %in% c("x 105,2 to per m2",
+                                           "x 105,2 to per m2, 95,02 cm2, 11 cm diam"), "Abundance"] <-
+  swe_lin[swe_lin$`Sample size (m-2)` %in% c("x 105,2 to per m2",
+                                           "x 105,2 to per m2, 95,02 cm2, 11 cm diam"), "Abundance"] *
+  105.2
+
+swe_lin[swe_lin$Site %in% c("Finsbo  (obs means per m2)"), "Abundance"] <-
+  swe_lin[swe_lin$Site %in% c("Finsbo  (obs means per m2)"), "Abundance"] * m2_conversion
+
+## Correct the m2
+swe_lin[swe_lin$`Sample size (m-2)` %in% c("x 105,2 to per m2",
+                                           "x 105,2 to per m2, 95,02 cm2, 11 cm diam"),
+        "Sample size (m-2)"] <- 0.0095033
+
+swe_lin[swe_lin$Site %in% c("Finsbo  (obs means per m2)"), "Sample size (m-2)"] <- circle_area
+
+
+swe_lin[swe_lin$Site %in% c("Finsbo  (obs means per m2)"), "Site"] <- "Finsbo"
+swe_lin$Taxa <- as.character(swe_lin$Taxa)
+
+swe_lin$Country <- "Sweden W"
+
+swe_both <- merge(swe_l, swe_lin, all = TRUE)
+
+```
+
+## Germany
+
+Notes on data editing
+- Assuming raw counts
+- Negative abundances recoded as 0
+- Epifauna
+
+```{r}
+
+de <- as.data.frame(read_xlsx("data/EelgrassFaunaData-Germany.xlsx", sheet = "Epifauna"))
+var_de <- c("STATION_NR", "Site", "ORT", "HOL_CODE", "HOL_DEPTH", "DAY", "YEAR",
+            "MONTH", "Sampling method", "rw_geo_mess", "REMARK", "hw_geo_mess",
+            "Sample size (m-2)", "Mesh Size (mm)")
+
+names(de)[names(de) %in% "Sample Size (m2)"] <- "Sample size (m-2)"
+names(de)[names(de) %in% "SAMPLING DEVICE"] <- "Sampling method"
+
+de_l <- melt(de, id.vars = var_de, variable.name = "Taxa", value.name = "Abundance",
+             factorsAsStrings = TRUE)
+
+de_l[de_l$Abundance < 0, "Abundance"] <- 0
+de_l$Abundance <- 1 / de_l$`Sample size (m-2)` * de_l$Abundance
+de_l$Taxa <- as.character(de_l$Taxa)
+
+de_l$`Epifauna or Infauna` <- "Epifauna"
+
+```
+
+
+## Norway
+Notes on data editing
+- Dropping observations with values as cr and x
+- Editing 1996 data as replicates
+
+```{r}
+nor <- as.data.frame(read_xlsx("data/EelgrassFaunaData-Norway.xlsx", sheet = "Epifauna",
+                               skip = 1))
+nor <- nor[, !names(nor) %in% c("...234", "...235", "...236",
+                                "...237", "...238", "...239",
+                                "...240", "...241", "...242",
+                                "...243", "...244", "...245",
+                                "...246", "...247", "...248",
+                                "...249", "...250", "...251")]
+
+var_nor <- c("Country", "Site", "Year", "Month",
+             "Reference ID (from \"DataSources\" sheet)",
+             "Number of replicates (N)", "Raw data or means?",
+             "Replicate # (if raw data) from 1 to N", "Epifauna or Infauna",
+             "Mesh bag", "Sieve size (mm)", "Sample size (m-2)",
+             "Zostera dw, g/sample", "Zostera shoot density", "Notes")
+
+nor[nor$`Sample size (m-2)` %in% "Density (abundace per 1/4 m2 quadrat)", "Sample size (m-2)"] <- 0.25
+nor$`Sample size (m-2)` <- as.numeric(nor$`Sample size (m-2)`)
+
+nor_l <- melt(nor, id.vars = var_nor, variable.name = "Taxa", value.name = "Abundance",
+              factorsAsStrings = TRUE)
+
+nor_l <- nor_l[!nor_l$Abundance %in% c("cr", "x"), ]
+nor_l$Abundance <- as.numeric(nor_l$Abundance)
+nor_l$Abundance <- 1 / nor_l$`Sample size (m-2)` * nor_l$Abundance
+
+## Correct the sample size based on Lauras comment in file
+nor_l[nor_l$Year %in% 2023, "Sample size (m-2)"] <- 0.355
+
+nor_l$Taxa <- as.character(nor_l$Taxa)
+
+
+
+nor_l[nor_l$Site == "Arendal (station Klaua/Klauva) (Station 1)",
+      "Replicate # (if raw data) from 1 to N"] <- 1
+nor_l[nor_l$Site == "Arendal (station Klaua/Klauva) (Station 2)",
+      "Replicate # (if raw data) from 1 to N"] <- 2
+nor_l[nor_l$Site == "Arendal (station Klaua/Klauva) (Station 3)",
+      "Replicate # (if raw data) from 1 to N"] <- 3
+
+## Renaming sites to match cooridinate file
+nor_l[nor_l$Site %in% c("Klava",
+                        "Arendal (station Klaua/Klauva) (Station 1)",
+                        "Arendal (station Klaua/Klauva) (Station 2)",
+                        "Arendal (station Klaua/Klauva) (Station 3)"), "Site"] <- "Klauva"
+
+nor_l[nor_l$Site %in% c("Station 146, Risør ytre fjord"),
+      "Site"] <- "Risør ytre fjord"
+nor_l[nor_l$Site %in% c("Station 122, Barmen (Risør midtre fjord)"),
+      "Site"] <- "Risør midtre fjord (Barmen)"
+nor_l[nor_l$Site %in% c("Station 111, Sørfjorden (Risør indre fjord)"),
+      "Site"] <- "Risør indre fjord (Sørfjorden)"
+
+nor_l[nor_l$Site %in% c("Station 200, Langesund"),
+      "Site"] <- "Langesund"
+# nor_l[nor_l$Site %in% c("Station 235, Nøtterøy"),
+#       "Site"] <- ""
+nor_l[nor_l$Site %in% c("Station 192, Eidanger"),
+      "Site"] <- "Eidanger"
+nor_l[, "Sampling method"] <- "Mesh bag"
+
+## Infauna
+nor_in <- as.data.frame(read_xlsx("data/EelgrassFaunaData-Norway.xlsx",
+                                  sheet = "Infauna"))
+
+names(nor_in)[!names(nor_in) %in% names(nor)]
+
+nor_in$`Zostera dw` <- NULL
+nor_in$`Sampling method` <- "Core"
+var_nor_in <- c(var_nor[c(var_nor) %in% names(nor_in)], "Sampling method")
+
+nor_lin <- melt(nor_in, id.vars = var_nor_in,
+                variable.name = "Taxa",
+                value.name = "Abundance",
+                factorsAsStrings = TRUE)
+
+nor_lin$Taxa <- as.character(nor_lin$Taxa)
+
+## Combine
+nor_both <- merge(nor_l, nor_lin, all = TRUE)
+
+
+```
+
+
+## Estonia
+
+Notes on data editing
+- No raw data and not possible to backtransform
+- Zostera dw and shoot also per m2?
+
+```{r}
+est <- as.data.frame(read_xlsx("data/NORSE-WP2EelgrassFaunaTemplate-Estonia241010.xlsx",
+                               sheet = "Data"))
+
+var_est <- c("Country", "Site", "Year", "Month",
+             "Sample size (m-2)",
+             "Reference ID (from \"DataSources\" sheet)",
+             "Number of replicates (N)", "Raw data or means?",
+             "Replicate # (if raw data) from 1 to N", "Epifauna or Infauna",
+             "Sampling method", "Sieve size (mm)", "Zostera dw",
+             "Zostera shoot density", "Depth", "Comments")
+
+names(de)[names(de) %in% "Zostera dw"] <- "Zostera dw (m-2)"
+names(de)[names(de) %in% "Zostera shoot density"] <- "Zostera shoot density (m-2)"
+
+est_l <- melt(est, id.vars = var_est, variable.name = "Taxa", value.name = "Abundance",
+              factorsAsStrings = TRUE)
+est_l$Taxa <- as.character(est_l$Taxa)
+est_l$`Sample size (m-2)` <- 0.04
+
+```
+
+## Combine data
+
+```{r}
+# Combining the columns needed for analysis
+## All var from fin
+
+names(fin_both)[!names(fin_both) %in% names(swe_both)]
+
+## Renaming the sieve size variable 
+names(swe_both)[names(swe_both) == "Sieve size (mm)"] <- "Mesh/sieve size (mm)"
+names(de_l)[names(de_l) == "Mesh Size (mm)"] <- "Mesh/sieve size (mm)"
+names(nor_both)[names(nor_both) == "Sieve size (mm)"] <- "Mesh/sieve size (mm)"
+names(est_l)[names(est_l) == "Sieve size (mm)"] <- "Mesh/sieve size (mm)"
+
+
+## Renaming de data
+de_l$Country <- "Germany"
+names(de_l)[names(de_l) == "YEAR"] <- "Year"
+names(de_l)[names(de_l) == "MONTH"] <- "Month"
+names(de_l)[names(de_l) == "HOL_CODE"] <- "Replicate # (if raw data) from 1 to N"
+
+## For now fixing sieve, year, month (still need method, samp area and zostera)
+to_keep <- c("Month", "Year", "Site", "Country", "Mesh/sieve size (mm)",
+             "Replicate # (if raw data) from 1 to N", "Sampling method",
+             "Epifauna or Infauna", "Abundance", "Taxa", "Zostera dw (m-2)",
+             "Zostera shoot density (m-2)", "`Zostera dw`", "Raw data or means?",
+             "Sample size (m-2)", "Reference ID (from \"DataSources\" sheet)")
+
+names(fin_both)[names(fin_both) %in% to_keep]
+names(swe_both)[names(swe_both) %in% to_keep]
+names(est_l)[names(est_l) %in% to_keep]
+names(de_l)[names(de_l) %in% to_keep]
+names(nor_both)[names(nor_both) %in% to_keep]
+
+
+all_dat <- merge(fin_both[, names(fin_both) %in% to_keep],
+                 swe_both[, names(swe_both) %in% to_keep],
+                 all = TRUE)
+all_dat <- merge(all_dat, nor_both[, names(nor_both) %in% to_keep], all = TRUE)
+all_dat <- merge(all_dat, de_l[, names(de_l) %in% to_keep], all = TRUE)
+all_dat <- merge(all_dat, est_l[, names(est_l) %in% to_keep], all = TRUE)
+
+
+all_dat$zostera_dw_m2 <- all_dat$`Zostera dw (m-2)`
+all_dat$zostera_shoots_m2 <- all_dat$`Zostera shoot density (m-2)`
+all_dat$`Zostera dw (m-2)` <- NULL
+all_dat$`Zostera shoot density (m-2)` <- NULL
+all_dat$Sample_area_m2 <- as.numeric(all_dat$`Sample size (m-2)`)
+all_dat$`Sample size (m-2)` <- NULL
+
+all_dat[all_dat$Sampling_method %in% "mesh bag",
+        "Sampling method"] <- "Mesh bag"
+all_dat[all_dat$Sampling_method %in% "Other (specify in notes)",
+        "Sampling method"] <- "Estonian method"
+
+all_dat$Lit_ref <- all_dat$`Reference ID (from "DataSources" sheet)`
+all_dat$`Reference ID (from "DataSources" sheet)` <- NULL
+
+
+```
+
+
+```{r}
+## recoding specific variables
+
+all_dat[all_dat$Month %in% c("April"), "Month"] <- 4
+all_dat[all_dat$Month %in% c("August"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August, 13"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August, 20"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August, 29"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August,26"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("Augusti"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("December"), "Month"] <- 12
+all_dat[all_dat$Month %in% c("November"), "Month"] <- 11
+all_dat[all_dat$Month %in% c("October"), "Month"] <- 10
+all_dat[all_dat$Month %in% c("Sept"), "Month"] <- 9
+all_dat[all_dat$Month %in% c("September"), "Month"] <- 9
+all_dat[all_dat$Month %in% c("Summer"), "Month"] <- 7
+all_dat[all_dat$Month %in% c("summer"), "Month"] <- 7
+all_dat[all_dat$Month %in% c("July"), "Month"] <- 7
+all_dat[all_dat$Month %in% c("July, 29"), "Month"] <- 7
+all_dat[all_dat$Month %in% c("July, mid"), "Month"] <- 7
+all_dat[all_dat$Month %in% c("June"), "Month"] <- 6
+all_dat[all_dat$Month %in% c("March"), "Month"] <- 3
+all_dat[all_dat$Month %in% c("Mid ? September"), "Month"] <- 9
+all_dat[all_dat$Month %in% c("August , 30"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August , 2"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August, 2"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August , 29"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August, 3"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August, 30"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("August, 4"), "Month"] <- 8
+all_dat[all_dat$Month %in% c("July, 23"), "Month"] <- 7
+all_dat[all_dat$Month %in% c("September, 1"), "Month"] <- 9
+all_dat[all_dat$Month %in% c("\"summer\""), "Month"] <- 7
+
+all_dat$Month <- as.numeric(all_dat$Month)
+
+
+
+
+## Remove wrong row
+all_dat <- all_dat[!(all_dat$Site == "Hinderbengtsviken" &
+                       all_dat$Year == 1993), ]
+
+## Remove sites with less than 3 years
+all_dat <- all_dat[all_dat$Month %in% c(6, 7, 8, 9), ]
+all_dat_years <- all_dat[all_dat$Abundance > 0, ]
+all_dat_years <- ddply(all_dat_years, c("Year", "Site"), summarise, N = length(unique(Month)))
+three <- table(all_dat_years$Year, all_dat_years$Site)
+to_keep <- c(colnames(three)[colSums(three > 0) >= 3])
+all_dat <- all_dat[all_dat$Site %in% to_keep, ]
+
+all_dat$epifauna_or_infauna <- all_dat$`Epifauna or Infauna`
+all_dat$`Epifauna or Infauna` <- NULL
+
+```
+
+
+# Species look up and checking
+
+After combining all the data to long format I produced a unique species list. To this species list I manually added genus.
+
+- ignoring juveniles
+- Add traits
+
+```{r}
+## Epifauna lookup
+# species_names <- all_dat[, names(all_dat) %in% c("Taxa", "Country")]
+# species_names <- dcast(species_names, Taxa ~ Country)
+# species_names[, 2:6][species_names[, 2:6] > 0] <- 1
+# 
+# species_names$ScientificName <- species_names$Taxa
+# species_names$Genus <- gsub(" .*", "", species_names$Taxa)
+# species_names <- species_names[order(species_names$Taxa), ]
+
+# write.csv2(species_names, row.names = FALSE, "data/epifauna_lookup.csv")
+
+
+## Adding infauna
+# infauna <- all_dat[all_dat$`Epifauna or Infauna` == "Infauna", ]
+# species_names <- infauna[, names(infauna) %in% c("Taxa", "Country")]
+# species_names <- dcast(species_names, Taxa ~ Country)
+# species_names[, 2:4][species_names[, 2:4] > 0] <- 1
+# 
+# species_names$ScientificName <- species_names$Taxa
+# species_names$Genus <- gsub(" .*", "", species_names$Taxa)
+# species_names <- species_names[order(species_names$Taxa), ]
+# lookup <- as.data.frame(read_xlsx("data/epifauna_lookup.xlsx"))
+# species_names <- species_names[!species_names$Taxa %in% lookup$Taxa, ]
+# write.csv(species_names, row.names = FALSE, "data/infauna_lookup.csv")
+## Added to lookup
+# library(worrms)
+# 
+# lookup <- as.data.frame(read_xlsx("data/species_lookup.xlsx"))
+# 
+# all_sp <- NULL
+# for(i in 613:nrow(lookup)) {
+#   print(i)
+#   test <- wm_records_taxamatch(lookup$ScientificName[i], marine_only = FALSE)
+#   all_sp <- rbind(all_sp, as.data.frame(test[[1]]))
+# 
+# }
+# 
+# write.csv2(all_sp, row.names = FALSE, "data/worms_checking.csv")
+# 
+# 
+# all_sp <- read.csv2("data/worms_checking_ed.csv")
+# all_sp <- all_sp[, names(all_sp) %in% c("AphiaID", "scientificname",
+#                                         "valid_AphiaID", "valid_name",
+#                                         "kingdom", "phylum", "class",
+#                                         "order", "family", "genus")]
+# 
+# all_sp <- unique(all_sp)
+# names(all_sp)[names(all_sp) == "scientificname"] <- "ScientificName"
+# lookup_edit <- merge(lookup, all_sp, all.x = TRUE, by = "ScientificName")
+# 
+# write.csv2(lookup_edit, row.names = FALSE, "data/species_lookup.csv")
+```
+
+
+Adds row to lookup saying which species is where. This is necessary as some of the species might have dropped from the original when made requirments stricter
+
+```{r}
+# lookup <- as.data.frame(read_xlsx("data/species_lookup_new_1504.xlsx"))
+# epifauna_species <- unique(all_dat[all_dat$`Epifauna or Infauna` %in% c("Epifauna"), "Taxa"])
+# lookup[lookup$Taxa %in% epifauna_species, "in_epifauna"] <- "x"
+# 
+# epifauna_species <- unique(all_dat[all_dat$`Epifauna or Infauna` %in% c("Infauna"), "Taxa"])
+# lookup[lookup$Taxa %in% epifauna_species, "in_infauna"] <- "x"
+# 
+# 
+# epifauna_species <- unique(all_dat[all_dat$`Epifauna or Infauna` %in% c("Combined"), "Taxa"])
+# lookup[lookup$Taxa %in% epifauna_species, "in_combined"] <- "x"
+# 
+# write.csv2(lookup, row.names = FALSE, "data/check_species.csv")
+
+
+```
+
+
+
+```{r}
+#####
+# lookup <- as.data.frame(read_xlsx("data/species_lookup_new.xlsx"))
+lookup <- as.data.frame(read_xlsx("data/species_lookup_new_1504.xlsx"))
+
+## Epifauna
+fauna_lookup <- lookup[lookup$in_epifauna %in% "x" |
+                         lookup$in_infauna %in% "x" |
+                         lookup$in_combined %in% "x", ]
+
+fauna_lookup <- fauna_lookup[, names(fauna_lookup) %in% c("Taxa", "ScientificName",
+                                                          "genus", "Group", "valid_name",
+                                                          "order", "class", "family", "phylum",
+                                                          "Richness_epifauna", "Richness_infauna",
+                                                          "in_infauna", "in_epifauna", "in_combined",
+                                                          "DROP")]
+table(fauna_lookup$Group)
+
+dat_both <- merge(all_dat, fauna_lookup, by = "Taxa", all.x = TRUE)
+
+
+dat_both$Replicate <- dat_both$`Replicate # (if raw data) from 1 to N`
+dat_both$Sampling_method <- dat_both$`Sampling method`
+dat_both$mesh_sieve_mm <- dat_both$`Mesh/sieve size (mm)`
+dat_both$data_type <- dat_both$`Raw data or means?`
+dat_both[dat_both$Country %in% "Germany", "data_type"] <- "raw"
+dat_both$ID <- interaction(dat_both$Site, dat_both$Year, dat_both$Month)
+
+## Merge per group
+all_dat <- ddply(dat_both, c("Group", "Country", "Year", "ID",
+                             "Month", "Site", "Replicate",
+                             "epifauna_or_infauna", "genus", "ScientificName",
+                             "zostera_dw_m2", "zostera_shoots_m2",
+                             "mesh_sieve_mm", "Sampling_method",
+                             "data_type", "Sample_area_m2", "valid_name",
+                             "Lit_ref", "order", "class", "family", "phylum",
+                             "Richness_epifauna", "Richness_infauna"),
+                 summarise,
+                 Abundance = sum(Abundance, na.rm = TRUE))
+
+save(all_dat, file = "output/infauna_epifauna_042025.RData")
+
+
+## Merge per group
+all_dat_g <- ddply(dat_both, c("Group", "Country", "Year", "ID",
+                               "Month", "Site", "Replicate", "Sample_area_m2",
+                               "epifauna_or_infauna", "zostera_dw_m2", "zostera_shoots_m2",
+                               "mesh_sieve_mm", "Sampling_method", "data_type",
+                               "Richness_epifauna", "Richness_infauna"),
+                   summarise,
+                   Abundance = sum(Abundance, na.rm = TRUE))
+
+
+save(all_dat_g, file = "output/infauna_epifauna_merge_group_042025.RData")
+
+
+```
+
+# Epifauna graph
+
+```{r}
+options(scipen = 999)
+
+dat_plot <- all_dat_g[all_dat_g$Group %in% c("amphipoda", "bivalvia", "chironomidae", "decapoda", "gastropoda",
+                                             "isopoda", "mysida", "polychaeta", "tanaidacea"), ]
+
+dat_plot <- ddply(dat_plot, c("Group", "Country", "Year",
+                              "Month", "Site", "epifauna_or_infauna"),
+                  summarise,
+                  Abundance = mean(Abundance, na.rm = TRUE))
+
+dat_plot <- ddply(dat_plot, c("Group", "Country", "Year", "epifauna_or_infauna"), summarise,
+                  Abundance = mean(Abundance, na.rm = TRUE))
+
+
+plot_epi <- dat_plot[dat_plot$epifauna_or_infauna %in% c("Epifauna", "Combined"), ]
+
+g <- ggplot(plot_epi, aes(Abundance, as.factor(Year), fill = Group))
+g <- g + facet_wrap(~Country, drop = TRUE, scales = "free_y")
+g <- g + xlab("% of total abundance") + ylab("Year")
+g <- g + geom_bar(stat = "identity", position = "fill")
+g
+
+ggsave(g, file = "graphs/epifauna_relative_abundance_04.png", width = 10, height = 7.3)
+
+g <- ggplot(plot_epi, aes(Abundance, as.factor(Year), fill = Group))
+g <- g + facet_wrap(~Country, drop = TRUE, scales = "free")
+g <- g + xlab("Abundance m2") + ylab("Year")
+g <- g + geom_bar(stat = "identity", position = "dodge")
+g
+
+ggsave(g, file = "graphs/epifauna_abundance_grouped_04.png", width = 10, height = 7.3)
+
+
+g <- ggplot(plot_epi, aes(Abundance, as.factor(Year), fill = Group))
+g <- g + facet_grid(Country~Group, drop = TRUE, scales = "free")
+g <- g + xlab("Abundance m2") + ylab("Year")
+g <- g + geom_bar(stat = "identity")
+g
+
+ggsave(g, file = "graphs/epifauna_abundance_04.png", width = 25, height = 10)
+
+
+
+```
+
+# Infauna graph
+
+```{r}
+
+dat_plot <- all_dat_g[all_dat_g$Group %in% c("amphipoda", "bivalvia", "oligochaeta", "polychaeta"), ]
+
+dat_plot <- ddply(dat_plot, c("Group", "Country", "Year",
+                              "Month", "Site", "epifauna_or_infauna"),
+                  summarise,
+                  Abundance = mean(Abundance, na.rm = TRUE))
+
+dat_plot <- ddply(dat_plot, c("Group", "Country", "Year", "epifauna_or_infauna"), summarise,
+                  Abundance = mean(Abundance, na.rm = TRUE))
+
+plot_in <- dat_plot[dat_plot$epifauna_or_infauna %in% c("Infauna", "Combined"), ]
+
+g <- ggplot(plot_in, aes(Abundance, as.factor(Year), fill = Group))
+g <- g + facet_wrap(~Country, drop = TRUE, scales = "free_y")
+g <- g + xlab("% of total abundance") + ylab("Year")
+g <- g + geom_bar(stat = "identity", position = "fill")
+g
+
+ggsave(g, file = "graphs/infauna_relative_abundance_04.png", width = 10, height = 7.3)
+
+g <- ggplot(plot_in, aes(Abundance, as.factor(Year), fill = Group))
+g <- g + facet_wrap(~Country, drop = TRUE, scales = "free")
+g <- g + xlab("Abundance m2") + ylab("Year")
+g <- g + geom_bar(stat = "identity", position = "dodge")
+g
+
+ggsave(g, file = "graphs/infauna_abundance_grouped_04.png", width = 10, height = 7.3)
+
+
+g <- ggplot(plot_in, aes(Abundance, as.factor(Year), fill = Group))
+g <- g + facet_grid(Country~Group, drop = TRUE, scales = "free")
+g <- g + xlab("Abundance m2") + ylab("Year")
+g <- g + geom_bar(stat = "identity")
+g
+
+ggsave(g, file = "graphs/infauna_abundance_04.png", width = 25, height = 10)
+```
+
+
+## Add coordinates
+
+```{r}
+
+coordinates <- read_xlsx("data/summeries/WP2 NORSE Data Status Oct.23_2024 .xlsx")
+coordinates$Lat <- as.numeric(coordinates$Lat)
+coordinates$Long <- as.numeric(coordinates$Long)
+coordinates <- coordinates[!is.na(coordinates$Lat), ]
+coordinates <- coordinates[!is.na(coordinates$Long), ]
+
+# unique(all_dat_g$Site)[unique(all_dat_g$Site) %in% unique(coordinates$Site)]
+
+sites_coords <- unique(coordinates[, names(coordinates) %in% c("Site",
+                                                               "Lat",
+                                                               "Long")])
+
+
+sites_coords <- rbind(sites_coords,
+                      data.frame(Site = "Gåsö", Lat = 58.233, Long = 11.400))
+
+sites_coords_m <- ddply(sites_coords, c("Site"), summarise,
+                        Lat = mean(Lat),
+                        Long = mean(Long))
+
+
+
+
+```
+
+
+## Add SWM
+
+```{r}
+
+dat_sf <- st_as_sf(sites_coords_m, coords = c("Long", "Lat"), crs = 4326)
+write_sf(dat_sf, "data/summeries/points.gpkg")
+
+##
+swm <- rast("V:/Arkisto VELMU1/Vanhat tai alkuperäiset aineistot/Taustamuuttujarasterit/Pinnan ekspositio/Expositio_baltic_wgs84/SWM_hela_Östersjön_WGS84/swm_with_wh1/sta.adf")
+
+sites_coords_m$swm <- extract(swm, vect(dat_sf))$swm_with_wh1
+
+## Salinity
+sal <- rast("t:/Paperit/Remane/input/salinity_annual_0_10_13_23.tiff")
+sal <- project(sal, crs(dat_sf))
+
+sites_coords_m$salinity <- extract(sal, vect(dat_sf))$salinity_annual_0_10_13_23
+
+sites_coords_m[sites_coords_m$Site == "Eru", "salinity"] <- 4.8
+sites_coords_m[sites_coords_m$Site == "Tromper Wiek", "salinity"] <- 12.5
+sites_coords_m[sites_coords_m$Site == "Sødra Stridsfjorden", "salinity"] <- 23.4
+sites_coords_m[sites_coords_m$Site == "Kämpersvik", "salinity"] <- 23
+sites_coords_m[sites_coords_m$Site == "Tromper Wiek", "salinity"] <- 12.5
+sites_coords_m[sites_coords_m$Site == "Finsbo", "salinity"] <- 19
+
+
+## SWM
+sites_coords_m[sites_coords_m$Site == "Langerumpa", "swm"] <- 0.27
+sites_coords_m[sites_coords_m$Site == "Klauva", "swm"] <- 0.07
+sites_coords_m[sites_coords_m$Site == "Langerumpa", "salinity"] <- 26.6
+sites_coords_m[sites_coords_m$Site == "Klauva", "salinity"] <- 12.6
+
+## Unit nm2s1
+
+all_dat_env <- merge(all_dat, sites_coords_m, all.x = TRUE)
+all_dat_g_env <- merge(all_dat_g, sites_coords_m, all.x = TRUE)
+
+
+save(all_dat_env, file = "output/infauna_epifauna_analysis_042025.RData")
+save(all_dat_g_env, file = "output/infauna_epifauna_merge_group_analysis_042025.RData")
+
+```
+
+
+## Temperature
+
+Temperature data was extracted from Copernicus for the 1982-2023. To calculate the temperature for each site we used the mean from a 15km area. To estimate the missing values we fit a gam to the timeseries and predicted the values for 2024 and years prior to 1982
+
+```{r}
+# sst <- rast("../Data/Copernicus/sst_subset.nc")
+# sst_time <- time(sst)
+# sst_time_month <- as.numeric(substr(sst_time, 6, 7))
+# 
+# temp_summer <- sst[[sst_time_month %in% c(6, 7, 8, 9)]]
+# 
+# years <- as.numeric(substr(time(temp_summer), 1, 4))
+# 
+# ## Make annual rasters
+# for (i in 1:length(unique(years))) {
+#   year <- unique(years)[[i]]
+#   r_index <- years %in% year
+#   
+#   annual_r <- temp_summer[[r_index]]
+#   annual_r <- mean(annual_r, na.rm = TRUE)
+#   annual_r <- annual_r - 273.15
+#   names(annual_r) <- year
+#   
+#   writeRaster(annual_r, filename = paste0("data/temperature/SST_", year,  ".tif"))
+#   print(year)
+#   
+# }
+
+dat_coords_sf <- st_as_sf(sites_coords_m, coords = c("Long", "Lat"), crs = 4326)
+
+annual_temp <- rast(list.files("data/temperature", full.names = TRUE))
+dat_coords_sf <- st_transform(dat_coords_sf, crs = st_crs(annual_temp))
+dat_coords_sf_buff <- st_buffer(dat_coords_sf, dist = 15000)
+
+temp_sites <- extract(annual_temp, vect(dat_coords_sf_buff),
+                      mean, na.rm = TRUE)
+
+temp_sites$Site <- dat_coords_sf_buff$Site
+
+temp_sites_l <- melt(temp_sites, id.vars = c("Site", "ID"), variable.name = "Year",
+                     value.name = "Temperature")
+temp_sites_l$ID <- NULL
+temp_sites_l$Year <- as.numeric(as.character(temp_sites_l$Year))
+
+country <- all_dat_g_env[, names(all_dat_g_env) %in% c("Country", "Site")]
+temp_sites_l <- merge(temp_sites_l, country, by = "Site")
+
+g <- ggplot(temp_sites_l, aes(Year, Temperature, col = Site)) + geom_smooth()
+g <- g + facet_wrap(~Country)
+g
+
+
+```
+
+## Temperature model
+
+```{r}
+
+library(mgcv)
+
+temp_sites_l$Site <- as.factor(temp_sites_l$Site)
+temp_sites_l$Country <- as.factor(temp_sites_l$Country)
+
+# mdl <- gam(Temperature ~ s(Year, k = 5, m = 2) +
+#              s(Year, Country, k = 5, bs = "fs", m = 2),
+#            data = temp_sites_l)
+# 
+# plot(mdl)
+# gam.check(mdl)
+
+mdl <- glm(Temperature ~ Year + Country + Site,
+           data = temp_sites_l)
+
+pred_frame <- expand.grid(Year = c(1969:1981, 2024),
+                          Site = unique(temp_sites_l$Site))
+
+pred_frame <- merge(pred_frame, country, by = "Site")
+pred_frame <- pred_frame[!duplicated(pred_frame), ]
+
+pred_frame$Temperature <- predict(mdl, pred_frame)
+
+temp_full <- rbind(pred_frame, temp_sites_l)
+
+```
+
+
+```{r}
+
+g <- ggplot(temp_full, aes(Year, Temperature, col = Site)) + geom_line()
+g <- g + facet_wrap(~Country)
+g
+
+```
+
+```{r}
+## Add temperature
+all_years_sites <- unique(all_dat_env[, names(all_dat_env) %in% c("Year", "Site")])
+temp_sites <- unique(temp_full[paste0(temp_full$Site, temp_full$Year) %in%
+                                 paste0(all_years_sites$Site, all_years_sites$Year), ])
+temp_sites$Country <- NULL
+
+all_dat_env_t <- merge(all_dat_env, temp_sites, all.x = TRUE, by = c("Year", "Site"))
+all_dat_g_env_t <- merge(all_dat_g_env, temp_sites, all.x = TRUE, by = c("Year", "Site"))
+
+
+save(all_dat_env_t, file = "output/infauna_epifauna_analysis_042025.RData")
+save(all_dat_g_env_t, file = "output/infauna_epifauna_merge_group_analysis_042025.RData")
+
+
+```
+
+
+
+
+

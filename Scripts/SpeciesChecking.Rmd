@@ -1,0 +1,917 @@
+---
+title: "SpeciesChecking"
+output: html_document
+date: "2025-04-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(plyr)
+library(ggplot2)
+load("output/infauna_epifauna_analysis_042025.RData")
+```
+
+
+# Epifauna
+
+For the epifauna data we mainly focused on amphipods, isopods, gastropods, Mytilus, and epifaunal polychaetes. Orders that were not considered included , 
+
+
+```{r}
+checking_epi <- ddply(all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Epifauna", "Combined"), ],
+                      c("Site", "order", "class", "epifauna_or_infauna",
+                        "family", "genus", "valid_name", "Country"), summarise,
+                      N = sum(as.numeric(Abundance > 0)))
+checking_epi <- checking_epi[checking_epi$N > 0, ]
+
+
+##
+species_dat <- ddply(all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Epifauna", "Combined"), ],
+                     c("Site", "order", "class",
+                       "family", "genus", "Country"), summarise,
+                     N = sum(as.numeric(Abundance > 0)))
+species_dat <- species_dat[species_dat$N > 0, ]
+
+unique(species_dat$order)
+```
+
+## Amphipoda
+
+Germany, Norway and Sweden have amphipods that have not been identified to genus level. Based on further investigation, the following are consiered on family level: Ampithoidae, Aoridae, Calliopiidae, Caprellidae, Dexaminidae, Gammaridae, Hyalidae, Melitidae, Stenothoidae. Whereas Ischyroceridae clearly had different genuses in different countries.
+
+```{r}
+group <- "Amphipoda"
+g <- ggplot(species_dat[species_dat$order %in% group, ], aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus") + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Sweden W", "Germany", "Norway"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family") + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+```
+
+## Asteroidea
+
+
+```{r}
+group <- "Asteroidea"
+g <- ggplot(species_dat[species_dat$class %in% group, ], aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus") + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+## Ascidiacea
+
+```{r}
+group <- "Ascidiacea"
+g <- ggplot(species_dat[species_dat$class %in% group, ], aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus") + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+# g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+## Isopoda
+
+```{r}
+group <- "Isopoda"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family") + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+```
+
+## Cephalaspidea
+
+Cephalaspidea were considered on genus level, with the exception of Haminoeidae that was only identified to family.
+
+```{r}
+unique(species_dat$order)
+group <- "Cephalaspidea"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway", "Sweden W", "Germany"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family") + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+```
+
+## Decapoda
+
+Palaemon considered on species level. Disregarded Paguridae, Inachidae, Hippolytidae and  Crangonidae.
+
+```{r}
+unique(species_dat$order)
+group <- "Decapoda"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway", "Sweden W", "Germany"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family") + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+```
+
+## Diptera
+
+From Diptera only the Chironomidae family was included. 
+
+```{r}
+unique(species_dat$order)
+group <- "Diptera"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+## Littorinimorpha
+
+Hydrobiidae with no information on genus were disregarded as the number of observations were very few and only in Germany. Rissoidae considered as family.
+
+```{r}
+unique(species_dat$order)
+group <- "Littorinimorpha"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway", "Sweden W", "Germany"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+```
+
+## Mytilida
+
+So few Mytilida that only considering genus
+
+```{r}
+unique(species_dat$order)
+group <- "Mytilida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+## Neogastropoda
+
+```{r}
+unique(species_dat$order)
+group <- "Neogastropoda"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+## Phyllodocida
+
+Considered on family level
+
+```{r}
+unique(species_dat$order)
+group <- "Phyllodocida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+## Cycloneritida
+
+
+```{r}
+unique(species_dat$order)
+group <- "Cycloneritida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+## Tanaidacea
+
+Considering on genus level and disregarding family level observations (N = 1)
+
+```{r}
+unique(species_dat$order)
+group <- "Tanaidacea"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+## Caenogastropoda incertae sedis
+
+Considering Bittium on genus level and Turritellidae as family
+
+```{r}
+unique(species_dat$order)
+group <- "Caenogastropoda incertae sedis"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+## Mysida
+
+Either species or order level data avilable; decided to go with order
+
+```{r}
+unique(species_dat$order)
+group <- "Mysida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+## Aplysiida
+
+```{r}
+unique(species_dat$order)
+group <- "Aplysiida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+## Nudibranchia
+
+Considering as order
+
+
+```{r}
+unique(species_dat$order)
+group <- "Nudibranchia"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+## Trochida
+
+Considering genus and Skeneidae as family
+
+
+```{r}
+unique(species_dat$order)
+group <- "Trochida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+## Lymnaeidae
+
+
+```{r}
+unique(species_dat$order)
+group <- "Lymnaeidae"
+
+g <- ggplot(species_dat[species_dat$family %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+## Other Gastropods
+
+The following had no order and were considered either on family: Pyramidellidae, Limapontiidae, or genus level: Omalogyridae
+
+## Genus NA
+
+
+```{r}
+
+dat_t <- species_dat
+hist_tab <- unique(dat_t[is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+# table(dat_t[dat_t$family %in% hist_tab, "family"],
+#       dat_t[dat_t$family %in% hist_tab, "genus"],
+#       dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = order)) + geom_point()
+g <- g + ggtitle("NA genus")
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+```
+
+
+# Infauna
+
+For the infauna data we mainly focused on infaunal polychaetes, oligochaetes, amphipods, and bivalvs. Orders that were not considered included , 
+
+## Adapedonta
+
+Only two genus
+
+```{r}
+checking <- ddply(all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Infauna", "Combined"), ],
+                  c("Site", "order", "class", "epifauna_or_infauna",
+                    "family", "genus", "valid_name", "Country"), summarise,
+                  N = sum(as.numeric(Abundance > 0)))
+checking <- checking[checking$N > 0, ]
+
+
+##
+species_dat <- ddply(all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Infauna", "Combined"), ],
+                     c("Site", "order", "class",
+                       "family", "genus", "Country"), summarise,
+                     N = sum(as.numeric(Abundance > 0)))
+species_dat <- species_dat[species_dat$N > 0, ]
+```
+
+
+```{r}
+unique(species_dat$order)
+group <- "Adapedonta"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+## Amphipoda
+
+Kept all genus for Corophiidae and for Norway there was only family available
+Aoridae dropped as epifauna.
+Caprellidae dropped as epifauna.
+Dexamine dropped as epifauna.
+Gammaridae dropped as epifauna.
+Ischyroceridae dropped as epifauna.
+Melitidae dropped as epifauna.
+
+
+
+```{r}
+unique(species_dat$order)
+group <- "Amphipoda"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+```
+
+
+## Cardiida
+
+All Cardiidae considered only on family level as Parvicardium and Cerastoderma are difficult to distinguish when small.
+
+
+```{r}
+unique(species_dat$order)
+group <- "Cardiida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway", "Finland"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+```
+
+
+## Myida
+
+```{r}
+unique(species_dat$order)
+group <- "Myida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+## Phyllodocida
+
+```{r}
+unique(species_dat$order)
+group <- "Phyllodocida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway", "Finland"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+```
+
+## Sabellida
+
+```{r}
+unique(species_dat$order)
+group <- "Sabellida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway", "Sweden W"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+```
+
+## Spionida
+
+Also keeping Spionida as family in addition to all genus levels.
+
+```{r}
+unique(species_dat$order)
+group <- "Spionida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+
+```{r}
+
+dat_t <- species_dat[species_dat$Country %in% c("Norway", "Sweden W"), ]
+hist_tab <- unique(dat_t[dat_t$order %in% group &
+                           is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+table(dat_t[dat_t$family %in% hist_tab, "family"],
+      dat_t[dat_t$family %in% hist_tab, "genus"],
+      dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+```
+
+## Galeommatida
+
+```{r}
+unique(species_dat$order)
+group <- "Galeommatida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+## Venerida
+
+```{r}
+unique(species_dat$order)
+group <- "Venerida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+## Eunicida
+
+```{r}
+unique(species_dat$order)
+group <- "Eunicida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+
+
+## Terebellida
+
+```{r}
+unique(species_dat$order)
+group <- "Terebellida"
+
+g <- ggplot(species_dat[species_dat$order %in% group, ],
+            aes(Site, genus, size = N, col = family)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Genus")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```
+## Genus NA
+
+
+```{r}
+
+dat_t <- species_dat
+hist_tab <- unique(dat_t[is.na(dat_t$genus) &
+                           !is.na(dat_t$family), ]$family)
+
+# table(dat_t[dat_t$family %in% hist_tab, "family"],
+#       dat_t[dat_t$family %in% hist_tab, "genus"],
+#       dat_t[dat_t$family %in% hist_tab, "Country"])
+
+dat_t[is.na(dat_t$genus), "genus"] <- "NA"
+
+g <- ggplot(dat_t[dat_t$family %in% hist_tab, ], aes(genus, family, col = order)) + geom_point()
+g <- g + ggtitle("NA genus")
+g <- g + xlab("Genus") + ylab("Family")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+```
+## Clitellata
+
+```{r}
+
+group <- "Clitellata"
+
+g <- ggplot(species_dat[species_dat$class %in% group, ],
+            aes(Site, order, size = N, col = class)) + geom_point()
+g <- g + ggtitle(group)
+g <- g + xlab("Site") + ylab("Order")
+g <- g + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+g <- g + facet_wrap(~Country, nrow = 1, scales = "free_x")
+g
+
+
+```

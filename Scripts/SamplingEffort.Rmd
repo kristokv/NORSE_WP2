@@ -1,0 +1,329 @@
+---
+title: "Epifauna analysis"
+output: html_notebook
+---
+
+
+
+# Select data
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(plyr)
+library(corrplot)
+library(Hmsc)
+library(tweedie)
+library(mgcv)
+library(statmod)
+library(gridExtra)
+library(lme4)
+options(scipen = 999)
+
+setwd("D:/Users/e1002963/Local/NORSE")
+
+
+load("output/infauna_epifauna_analysis_042025.RData")
+dat_epifauna <- all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Epifauna"), ]
+dat_epifauna <- dat_epifauna[!is.na(dat_epifauna$Richness_epifauna), ]
+dat_epifauna$Richness <- dat_epifauna$Richness_epifauna
+
+dat_infauna <- all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Infauna"), ]
+dat_infauna <- dat_infauna[!is.na(dat_infauna$Richness_infauna), ]
+dat_infauna$Richness <- dat_infauna$Richness_infauna
+
+dat_combined <- all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Combined"), ]
+dat_combined <- dat_combined[!is.na(dat_combined$Richness_infauna), ]
+dat_combined$Richness <- NA
+
+dat_infauna[is.na(dat_infauna$Sampling_method), "Sampling_method"] <- "Core"
+
+both <- rbind(dat_infauna, dat_epifauna)
+
+```
+
+
+
+```{r fig.cap="Distribution of observations from all sites over time. Size indicates maximum number of groups observed that year."}
+both_p <- rbind(both, dat_combined)
+BD <- both_p[both_p$Abundance > 0, ]
+BD <- ddply(BD, c("Year", "Site", "Country", "epifauna_or_infauna"),
+            summarise, `Sampling events` = length(unique(ID)))
+BD$Location <- BD$Country
+
+g <- ggplot(BD, aes(Year, Site, size = `Sampling events`, col = Location)) + geom_point(alpha = 0.6)
+g <- g + facet_grid(~epifauna_or_infauna)
+g <- g + scale_size(breaks = c(1, 2, max(BD$`Sampling events`)))
+g <- g + scale_color_brewer(palette = "Dark2")
+g <- g + ylab("")
+g <- g + theme_classic() + theme(text = element_text(size = 16, colour = "black"))
+g
+
+ggsave("graphs/epifauna_infauna_samples.png", width = 15, height = 4)
+
+```
+
+## Group wise graphs
+
+```{r}
+
+## Sum based on taxa
+dat_i <- ddply(both, c("ID", "Site", "Country", "Year", "Month",
+                       "Lat", "Long", "swm", "salinity", "Replicate",
+                       "Temperature", "ScientificName", "Group",
+                       "Richness", "epifauna_or_infauna", "data_type",
+                       "Sampling_method", "Sample_area_m2",
+                       "valid_name", "order", "ID"), summarise,
+               Abundance = sum(Abundance, na.rm = TRUE))
+
+
+
+dat <- ddply(dat_i, c("ID", "Site", "Country", "Year", "Month",
+                      "Lat", "Long", "swm", "salinity", "Group",
+                      "Temperature", "Replicate",
+                      "Sampling_method", "Sample_area_m2",
+                      "epifauna_or_infauna"), summarise,
+             Abundance = sum(Abundance, na.rm = TRUE))
+
+dat <- ddply(dat, c("ID", "Site", "Country", "Year", "Month",
+                    "Lat", "Long", "swm", "salinity", "Group",
+                    "Temperature", "Sampling_method", "Sample_area_m2",
+                    "epifauna_or_infauna"), summarise,
+             Abundance = mean(Abundance, na.rm = TRUE))
+
+BD <- dat[dat$Abundance > 0, ]
+BD$Location <- BD$Country
+BD <- ddply(BD, c("Year", "Site", "Location", "Group", "epifauna_or_infauna"), summarise, Abundance = mean(Abundance))
+dat_points <- ddply(dat, c("Year", "Site", "epifauna_or_infauna"), summarise, Samples = 1)
+
+g <- ggplot(BD[BD$epifauna_or_infauna == "Epifauna", ],
+            aes(Year, Site, size = Abundance, col = Location)) + geom_point()
+g <- g + geom_point(data = dat_points, col = "black", size = 0.2)
+g <- g + xlab("Year") + ylab("") + labs(tag = "A")
+# g <- g + scale_size(breaks = c(3, 5, max(BD$Samples)))
+g <- g + scale_color_manual(values = c(#"#1b9e77",
+                                       "#d95f02", "#7570b3", "#e7298a",
+                                       "#66a61e", "#e6ab02"))
+g <- g + facet_wrap(~Group, ncol = 3)
+g <- g + theme_classic() + theme(text = element_text(size = 16, colour = "black"))
+g
+
+p <- ggplot(BD[BD$epifauna_or_infauna == "Infauna", ],
+            aes(Year, Site, size = Abundance, col = Location)) + geom_point()
+p <- p + geom_point(data = dat_points, col = "black", size = 0.2)
+p <- p + xlab("Year") + ylab("") + labs(tag = "B")
+# p <- p + scale_size(breaks = c(3, 5, max(BD$Samples)))
+p <- p + scale_color_manual(values = c(#"#1b9e77",
+                                       "#d95f02", "#e7298a", "#e6ab02"))
+p <- p + facet_wrap(~Group, ncol = 3)
+p <- p + theme_classic() + theme(text = element_text(size = 16, colour = "black"))
+p
+
+layout <- matrix(c(1,
+                   1,
+                   1,
+                   2,
+                   2), ncol = 1, byrow = TRUE)
+
+fig_both <- grid.arrange(g, p, layout_matrix = layout)
+ggsave(fig_both, filename = "graphs/Mean_abundance_per_group.png", height = 18, width = 15)
+
+
+```
+
+# Sample size
+
+```{r}
+
+dat_s <- ddply(dat_i, c("ID", "Site", "Country", "Year", "Month",
+                        "Lat", "Long", "swm", "salinity", "Group",
+                        "Temperature", "Replicate", #"Richness",
+                        "Sampling_method", "Sample_area_m2",
+                        "epifauna_or_infauna"), summarise,
+               Abundance = sum(Abundance, na.rm = TRUE))
+
+
+dat_s <- dat_s[!is.na(dat_s$Sampling_method) &
+                 !dat_s$Sampling_method %in% "Rahmen (MZB)", ]
+dat_s[dat_s$Sampling_method %in% "mesh bag", "Sampling_method"] <- "Mesh bag"
+dat_s[dat_s$Replicate %in% c("Mean", NA), "Sampling_method"] <- 1
+dat_s$Replicate <- as.factor(dat_s$Replicate)
+dat_s$Group <- as.factor(dat_s$Group)
+dat_s$Location <- as.factor(dat_s$Country)
+
+# dat$Sampling_method <- as.factor(dat$Sampling_method)
+# dat$Group <- as.factor(dat$Group)
+# 
+# mdl_abund <- gam(Abundance ~ s(Sample_area_m2, k = 3) +
+#                    s(Sample_area_m2, Group, k = 3, bs = "fs") +
+#                    s(Sampling_method, bs = "re"),
+#                  family = tw(),
+#                  method = "REML",
+#                  data = dat)
+# 
+# 
+# summary(mdl_abund)
+# plot(mdl_abund)
+# gam.check(mdl_abund)
+
+
+dat_s <- dat_s[dat_s$Sample_area_m2 < 1, ]
+# to_drop <- ddply(dat_s, "Group", summarise, N = sum(Abundance > 0))
+# to_drop <- to_drop[to_drop$N == 0, "Richness"]
+# dat_s <- dat_s[!dat_s$Richness %in% to_drop, ]
+
+
+## Mesh
+mdl_mesh <- glmer(Abundance ~ Sample_area_m2*Group + Location + (1|Replicate),
+                  data = dat_s[dat_s$Sampling_method %in% "Mesh bag", ],
+                  family = tweedie(var.power = 1.69, link.power = 0))
+
+summary(mdl_mesh)
+
+# mdl_mesh <- gam(Abundance ~ s(Sample_area_m2, k = 3) +
+#                   s(Sample_area_m2, Group, k = 3, bs = "fs") +
+#                   s(Replicate, bs = "re"),
+#                  family = tw(),
+#                  method = "REML",
+#                  data = dat_s[dat_s$Sampling_method %in% "Mesh bag", ])
+# plot(mdl_mesh)
+
+pred_mesh <- expand.grid(Sample_area_m2 = seq(min(dat_s[dat_s$Sampling_method %in% "Mesh bag", ]$Sample_area_m2),
+                                              max(dat_s[dat_s$Sampling_method %in% "Mesh bag", ]$Sample_area_m2),
+                                              by = 0.01),
+                         Group = unique(dat_s[dat_s$Sampling_method %in% "Mesh bag", "Group"]),
+                         Sampling_method = "Mesh bag",
+                         Replicate = 1,
+                         Location = unique(dat_s[dat_s$Sampling_method %in% "Mesh bag", "Location"]))
+
+
+pred_mesh$fit <- predict(mdl_mesh, pred_mesh, type = "response")
+pred_mesh$fit_l <- predict(mdl_mesh, pred_mesh)
+
+
+## Core
+mdl_core <- glmer(Abundance ~ Sample_area_m2*Group + Location + (1|Replicate),
+                  data = dat_s[dat_s$Sampling_method %in% "Core", ],
+                  family = tweedie(var.power = 1.75, link.power = 0))
+
+# mdl_core <- gam(Abundance ~ s(Sample_area_m2, k = 3) +
+#                   s(Sample_area_m2, Group, k = 3, bs = "fs") +
+#                   s(Replicate, bs = "re"),
+#                  family = tw(),
+#                  method = "REML",
+#                  data = dat_s[dat_s$Sampling_method %in% "Core", ])
+# plot(mdl_core)
+
+summary(mdl_core)
+
+pred_core <- expand.grid(Sample_area_m2 = seq(min(dat_s[dat_s$Sampling_method %in% "Core", ]$Sample_area_m2),
+                                              max(dat_s[dat_s$Sampling_method %in% "Core", ]$Sample_area_m2),
+                                              by = 0.01),
+                         Group = unique(dat_s[dat_s$Sampling_method %in% "Core", "Group"]),
+                         Sampling_method = "Core",
+                         Replicate = 1,
+                         Location = unique(dat_s[dat_s$Sampling_method %in% "Core", "Location"]))
+
+
+pred_core$fit <- predict(mdl_core, pred_core, type = "response")
+pred_core$fit_l <- predict(mdl_core, pred_core)
+
+
+g <- ggplot(dat_s[dat_s$Sampling_method %in% "Mesh bag" & dat_s$Abundance > 0, ],
+            aes(Sample_area_m2, log(Abundance), col = Location)) + geom_jitter()
+g <- g + geom_line(data = pred_mesh, aes(Sample_area_m2, fit_l, col = Location))
+g <- g + scale_color_manual(values = c(#"#1b9e77",
+                                       "#d95f02", "#e7298a",
+                                       "#66a61e", "#e6ab02"))
+g <- g + facet_wrap(~Group, scales = "free_y", ncol = 3)
+g <- g + theme_classic() + theme(text = element_text(size = 16, colour = "black"))
+g
+
+p <- ggplot(dat_s[dat_s$Sampling_method %in% "Core" & dat_s$Abundance > 0, ],
+            aes(Sample_area_m2, log(Abundance), col = Location)) + geom_jitter()
+p <- p + geom_line(data = pred_core, aes(Sample_area_m2, fit_l, col = Location))
+p <- p + scale_color_manual(values = c("#d95f02","#e6ab02"))
+p <- p + facet_wrap(~Group, scales = "free_y", ncol = 3)
+p <- p + theme_classic() + theme(text = element_text(size = 16, colour = "black"))
+p
+
+
+layout <- matrix(c(1,
+                   1,
+                   1,
+                   2,
+                   2), ncol = 1, byrow = TRUE)
+
+fig_both <- grid.arrange(g, p, layout_matrix = layout)
+ggsave(fig_both, filename = "graphs/Sample_size_effects.png", height = 12, width = 10)
+
+
+
+```
+
+# Replicates
+
+```{r}
+dat_rep <- ddply(dat_i, c("ID", "Site", "Country", "Year", "Month",
+                          "Lat", "Long", "swm", "salinity", "Group",
+                          "Temperature", "Replicate", "Richness",
+                          "Sampling_method", "Sample_area_m2",
+                          "epifauna_or_infauna", "data_type", "ID"), summarise,
+                 Abundance = sum(Abundance, na.rm = TRUE))
+
+dat_rep <- dat_rep[dat_rep$data_type %in% c("Raw data", "raw", "raw data", "Raw Data"), ]
+
+variables <- c("Site", "Country", "Year", "Month", "Lat", "Long", "swm", "salinity", "ID",
+               "Temperature", "Replicate", "Group", "epifauna_or_infauna")
+
+dat_g <- ddply(dat_rep, variables, summarise,
+               Abundance = sum(Abundance))
+
+dat_g$Location <- dat_g$Country
+
+# g <- ggplot(dat_g, aes(as.factor(Year), log(Abundance + 1), fill = Group)) +
+#   geom_boxplot()
+# g <- g + facet_wrap(~Site, scales = "free")
+# g <- g + theme_bw()
+# g
+
+
+# to_drop <- ddply(dat_g, "Group", summarise, N = sum(Abundance > 0))
+# to_drop <- to_drop[to_drop$N == 0, "Group"]
+# dat_g <- dat_g[!dat_g$Group %in% to_drop, ]
+
+dat_g <- ddply(dat_g, c("ID", "Group"), mutate, N = sum(Abundance))
+dat_g <- dat_g[dat_g$N > 0, ]
+
+g <- ggplot(dat_g[dat_g$epifauna_or_infauna == "Epifauna", ],
+            aes(ID, log(Abundance + 1), col = Location)) + geom_boxplot()
+g <- g + xlab("Site ID") + ylab("Abundance (log + 1)") + labs(tag = "A")
+g <- g + scale_color_manual(values = c(#"#1b9e77",
+                                       "#d95f02", "#7570b3", "#e7298a",
+                                       "#66a61e", "#e6ab02"))
+g <- g + facet_wrap(~Group, scales = "free", ncol = 3)
+g <- g + theme_classic() + theme(text = element_text(size = 16, colour = "black"),
+                                 axis.text.x.bottom = element_blank())
+g
+
+p <- ggplot(dat_g[dat_g$epifauna_or_infauna == "Infauna", ],
+            aes(ID, log(Abundance + 1), col = Location)) + geom_boxplot()
+p <- p + xlab("Site ID") + ylab("Abundance (log + 1)") + labs(tag = "B")
+p <- p + scale_color_manual(values = c("#d95f02","#e7298a","#e6ab02"))
+p <- p + facet_wrap(~Group, scales = "free", ncol = 3)
+p <- p + theme_classic() + theme(text = element_text(size = 16, colour = "black"),
+                                 axis.text.x.bottom = element_blank())
+p
+
+layout <- matrix(c(1,
+                   1,
+                   1,
+                   2,
+                   2), ncol = 1, byrow = TRUE)
+
+fig_both <- grid.arrange(g, p, layout_matrix = layout)
+ggsave(fig_both, filename = "graphs/Replicate_influence.png", height = 18, width = 15)
+
+```
+
+
