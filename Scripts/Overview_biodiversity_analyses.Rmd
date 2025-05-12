@@ -19,6 +19,7 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 
 
 library(ggplot2)
+library(sf)
 library(reshape2)
 library(plyr)
 library(corrplot)
@@ -29,6 +30,7 @@ library(scatterpie)
 library(gridExtra)
 library(vegan)
 library(captioner)
+library(ggspatial)
 # Function to print tables
 print_kable = function(x) {
   print(kable_print_output <<- x)
@@ -47,32 +49,43 @@ heatmap_genus_infauna<- figs(name="heatmap_genus_infauna","Heat map of infauna g
 
 salinity_levels <- c("Low (<10)","Medium (10-15)","High (>15)")
 
+# load("../../infauna_epifauna_merge_group_analysis_05032025.RData")  # Data grouped at class/order/family level
+# all_dat_g_env_t <- all_dat_g_env_t %>%
+#   mutate(Site = case_when(grepl("Finsbo",   Site) ~ "Finsbo", .default =  Site)) %>%
+#   # Site with missing long/lat (Nøtterøy) assumed to be 10.445 E/59.167 N
+#   mutate(Long = case_when(is.na(Long) ~ 10.445, .default =  Long)) %>%
+#   mutate(Lat = case_when(is.na(Long) ~ 59.167, .default =  Lat)) %>%
+#   mutate(Month = case_when(is.na(Month) ~ 8, .default =  Month))  %>%
+#    mutate(salinity_factor = case_when(
+#       salinity < 10 ~ salinity_levels[1],
+#       salinity >= 10 & salinity < 15 ~ salinity_levels[2],
+#       salinity >= 15 ~ salinity_levels[3])) %>%
+#   mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) 
 
-load("../../infauna_epifauna_merge_group_analysis_05032025.RData")  # Data grouped at class/order/family level
-all_dat_g_env_t <- all_dat_g_env_t %>%
-  mutate(Site = case_when(grepl("Finsbo",   Site) ~ "Finsbo", .default =  Site)) %>%
-  # Site with missing long/lat (Nøtterøy) assumed to be 10.445 E/59.167 N
-  mutate(Long = case_when(is.na(Long) ~ 10.445, .default =  Long)) %>%
-  mutate(Lat = case_when(is.na(Long) ~ 59.167, .default =  Lat)) %>%
-  mutate(Month = case_when(is.na(Month) ~ 8, .default =  Month))  %>%
-   mutate(salinity_factor = case_when(
-      salinity < 10 ~ salinity_levels[1],
-      salinity >= 10 & salinity < 15 ~ salinity_levels[2],
-      salinity >= 15 ~ salinity_levels[3])) %>%
-  mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) 
+load("../../infauna_epifauna_analysis_042025.RData") # Data at genus/species level 
 
-load("../../infauna_epifauna_analysis_05032025.RData") # Data at genus/species level 
 all_dat_env_t <- all_dat_env_t %>%
-  mutate(Site = case_when(grepl("Finsbo",   Site) ~ "Finsbo", .default =  Site)) %>%
-  # Site with missing long/lat (Nøtterøy) assumed to be 10.445 E/59.167 N
-  mutate(Long = case_when(is.na(Long) ~ 10.445, .default =  Long)) %>%
-  mutate(Lat = case_when(is.na(Long) ~ 59.167, .default =  Lat)) %>%
-  mutate(Month = case_when(is.na(Month) ~ 8, .default =  Month))%>%
    mutate(salinity_factor = case_when(
       salinity < 10 ~ salinity_levels[1],
       salinity >= 10 & salinity < 15 ~ salinity_levels[2],
       salinity >= 15 ~ salinity_levels[3])) %>%
   mutate(salinity_factor = factor(salinity_factor, levels = salinity_levels, ordered = TRUE)) 
+
+dat_epifauna <- all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Epifauna"), ]
+dat_epifauna <- dat_epifauna[!is.na(dat_epifauna$Richness_epifauna), ]
+dat_epifauna$Richness <- dat_epifauna$Richness_epifauna
+
+dat_infauna <- all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Infauna"), ]
+dat_infauna <- dat_infauna[!is.na(dat_infauna$Richness_infauna), ]
+dat_infauna$Richness <- dat_infauna$Richness_infauna
+
+dat_combined <- all_dat_env_t[all_dat_env_t$epifauna_or_infauna %in% c("Combined"), ]
+dat_combined <- dat_combined[!is.na(dat_combined$Richness_infauna), ]
+dat_combined$Richness <- NA
+
+dat_infauna[is.na(dat_infauna$Sampling_method), "Sampling_method"] <- "Core"
+
+both <- rbind(dat_infauna, dat_epifauna)
 
 ```
 
@@ -104,14 +117,40 @@ rm(country_table, site_table)
 ```{r map_all, fig.cap=map_all, fig.height=10, fig.width=10}
 
 sites <- all_dat_env_t %>%
-  dplyr::select(Long, Lat, Site, Year, Set) %>% 
+  dplyr::select(Long, Lat, Site, Year, epifauna_or_infauna) %>% 
   unique() %>%
   group_by(Long, Lat, Site) %>%
-  summarise(Num.years = length(unique(Year)), Fauna = paste0(sort(unique(Set)), collapse=","))  %>%
-  mutate_at('Fauna', str_replace, 'Epifauna,Infauna', 'Both')
+  summarise(Num.years = length(unique(Year)), Fauna = paste0(sort(unique(epifauna_or_infauna)), collapse=","))  %>%
+  mutate(Fauna = if_else(Fauna == "Epifauna", Fauna, "Epifauna and infauna"))
+
+
+eu <- read_sf("../../shapefiles/europe_100km.shp")
+sites_sf <- st_as_sf(sites[, names(sites) %in% c("Long", "Lat")],
+                       coords = c("Long", "Lat"), crs = 4326)
+sites_sf <- st_transform(sites_sf, crs = st_crs(eu))
+sites_buffer <- st_buffer(sites_sf, dist = 100000)
+eu <- st_crop(eu, sites_buffer)
+
+
+g <- ggplot(eu) + geom_sf(col = "black", fill = "grey90") +
+  geom_sf(data = sites_sf, fill = "black", col = "black") + 
+  coord_sf(expand = FALSE, crs = 3035) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  theme_classic() + theme(legend.position = c(0.5, 0.4),
+                 legend.background = element_blank(),
+                 panel.border = element_rect(color = "black", fill = NA),
+                 legend.text = element_text(size = 16),
+                 axis.text = element_text(size = 16),
+                 legend.title = element_blank())
+g
+
+
+
 
 g <- ggplot(sites, aes(Long, Lat, shape = Fauna)) +
   borders(xlim = range(sites$Long, na.rm=T),ylim = range(sites$Lat, na.rm=T), fill="black") + 
+  coord_sf(expand = FALSE, crs = 3035) +
+
   theme_classic() + 
   geom_point(color="cyan", size = 1.5) + 
   geom_label_repel(data = sites,aes(Long, Lat, label = Site, color=Num.years),
