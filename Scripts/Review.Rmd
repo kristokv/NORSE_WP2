@@ -15,7 +15,7 @@ library(ggspatial)
 
 
 ```{r}
-zostera <- read.delim("data/Zostera/0004443-250415084134356/0004443-250415084134356.csv")
+zostera <- read.delim("../Input/Zostera/0004443-250415084134356/0004443-250415084134356.csv")
 zostera <- zostera[zostera$coordinateUncertaintyInMeters <= 400, ]
 zostera <- zostera[!is.na(zostera$decimalLatitude), ]
 zostera <- zostera[!is.na(zostera$decimalLongitude), ]
@@ -25,11 +25,10 @@ zostera_sf <- st_as_sf(zostera[, names(zostera) %in% c("decimalLongitude", "deci
                        coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)
 
 # sf_use_s2(FALSE)
-eu <- read_sf("../MPA_EU/data/boundaries/EuropeSeas.shp")
+eu <- read_sf("../Input/base_map.shp")
 zostera_sf <- st_transform(zostera_sf, crs = st_crs(eu))
 zostera_buffer <- st_buffer(zostera_sf, dist = 100000)
 eu <- st_crop(eu, zostera_buffer)
-
 
 grid <- st_make_grid(st_bbox(eu), cellsize = 10000, square = FALSE)
 zostera_grid <- grid[lengths(st_intersects(grid, zostera_sf)) > 0, ]
@@ -38,12 +37,16 @@ zostera_grid <- grid[lengths(st_intersects(grid, zostera_sf)) > 0, ]
 
 
 ```{r}
-data_sets <- read_xlsx("data/Eelgrass Fauna Data Catalogue.xlsx", sheet = "DATA")
+data_sets <- read_xlsx("../Input/Eelgrass Fauna Data Catalogue.xlsx", sheet = "DATA")
 data_sets$Lat <- as.numeric(data_sets$Lat)
 data_sets <- data_sets[!is.na(data_sets$Lat), ]
 data_sets <- data_sets[!is.na(data_sets$Long), ]
+data_sets$Type <- data_sets$`Epi/Inf`
+data_sets$time_series <- data_sets$`Time Series?`
 
-data_sets <- st_as_sf(data_sets[, names(data_sets) %in% c("Long", "Lat")],
+data_sets <- st_as_sf(data_sets[, names(data_sets) %in% c("Long", "Lat",
+                                                          "time_series",
+                                                          "Type", "Site")],
                       coords = c("Long", "Lat"), crs = 4326)
 
 data_sets <- st_transform(data_sets, crs = 3035)
@@ -53,6 +56,8 @@ data_sets <- st_crop(data_sets, eu)
 
 
 ```{r}
+library(gridExtra)
+library(ggrepel)
 
 gg <- ggplot(eu) + geom_sf(col = "grey90", fill = "grey90")
 gg <- gg + geom_sf(data = zostera_grid, fill = "lightgreen", col = "lightgreen")
@@ -66,7 +71,7 @@ gg <- gg + annotation_scale(location = "br", width_hint = 0.5)
 #         pad_x = unit(0.5, "in"),
 #         style = north_arrow_orienteering,
 #         width = unit(1, "cm"))
-gg <- gg + theme_classic()
+gg <- gg + theme_classic() + xlab("") + ylab("")
 gg <- gg + theme(legend.position = c(0.5, 0.4),
                  legend.background = element_blank(),
                  panel.border = element_rect(color = "black", fill = NA),
@@ -75,8 +80,44 @@ gg <- gg + theme(legend.position = c(0.5, 0.4),
                  legend.title = element_blank())
 gg
 
-ggsave(filename = paste0("graphs/Zostera_map.png"),
-       dpi = 600, height = 7, width = 7)
+
+data_sets_t <- unique(data_sets[data_sets$time_series %in% "Y", ])
+data_sets_t[data_sets_t$Type == "Both", "Type"] <- "Combined"
+
+data_sets_t$Fauna <- NA
+for (i in 1:length(unique(data_sets_t$Site))) {
+  site <- unique(data_sets_t$Site)[[i]]
+  fauna <- sort(unique(data_sets_t[data_sets_t$Site %in% site, ]$Type))
+  
+  data_sets_t[data_sets_t$Site %in% site, ]$Fauna <- paste0(fauna, collapse = " and ")
+  
+}
+
+data_sets_t <- unique(data_sets_t[, !names(data_sets_t) %in% c("Type")])
+data_sets_t <- data_sets_t[!duplicated(st_drop_geometry(data_sets_t)), ]
+data_sets_t[data_sets_t$Fauna == "Combined and Epifauna and Infauna", ]$Fauna <- "All"
+
+ff <- ggplot(eu) + geom_sf(col = "grey90", fill = "grey90")
+# ff <- ff + geom_sf_label(data = data_sets_t, aes(label = Site, col = Fauna))
+ff <- ff + geom_text_repel(data = data_sets_t,
+                           aes(label = Site, col = Fauna, geometry = geometry),
+                  stat = "sf_coordinates", max.overlaps = 20)
+ff <- ff + coord_sf(expand = FALSE, crs = 3035)
+ff <- ff + annotation_scale(location = "br", width_hint = 0.5)
+ff <- ff + theme_classic() + xlab("") + ylab("")
+ff <- ff + scale_color_brewer(palette = "Dark2")
+ff <- ff + theme(legend.position = c(0.4, 0.85), 
+                 legend.background = element_blank(),
+                 panel.border = element_rect(color = "black", fill = NA),
+                 legend.text = element_text(size = 16),
+                 axis.text = element_text(size = 16),
+                 legend.title = element_blank())
+ff
+
+both <- grid.arrange(gg, ff, ncol = 2)
+
+ggsave(both, filename = paste0("../Graphs/Zostera_fauna_map_2.png"),
+       dpi = 600, height = 7, width = 14)
 
 ```
 
